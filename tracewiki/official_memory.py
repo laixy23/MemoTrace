@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Protocol
 
 import requests
@@ -329,20 +330,27 @@ class Mem0MemoryService:
                 "user_id": user_id,
                 "metadata": metadata,
                 "infer": False,
-                "version": "v2",
             },
         )
-        response_id = _first_string(response, ["event_id", "id", "memory_id"]) or stable_id(
+        event = self._wait_for_event(_first_string(response, ["event_id"]))
+        event_rows = _extract_rows(event) if event else []
+        stored_row = event_rows[0] if event_rows else {}
+        stored_metadata = _coerce_dict(stored_row.get("metadata"))
+        if stored_metadata:
+            metadata = {**metadata, **stored_metadata}
+        response_id = _first_string(stored_row, ["id", "memory_id"]) or _first_string(
+            response, ["id", "memory_id", "event_id"]
+        ) or stable_id(
             f"{user_id}|{memory_type}|{content}|{utc_now_iso()}"
         )
         return MemoryItem(
             memory_id=response_id,
             user_id=user_id,
             memory_type=memory_type,
-            content=content,
+            content=str(stored_row.get("memory") or stored_row.get("text") or stored_row.get("content") or content),
             confidence=confidence,
             source=source,
-            metadata={**metadata, "mem0_response": response},
+            metadata={**metadata, "mem0_response": response, "mem0_event": event},
             status=status,
         )
 
@@ -353,22 +361,21 @@ class Mem0MemoryService:
         limit: int = 5,
         memory_type: str | None = None,
     ) -> list[MemoryItem]:
-        metadata: dict[str, Any] = {}
-        if memory_type:
-            metadata["memory_type"] = memory_type
         response = self._request(
             "POST",
             "/v3/memories/search/",
             json={
                 "query": query,
-                "user_id": user_id,
-                "filters": metadata or None,
+                "filters": _mem0_entity_filter(user_id),
                 "top_k": limit,
-                "version": "v2",
+                "threshold": 0.0,
             },
         )
         rows = _extract_rows(response)
-        return [_mem0_row_to_item(row, default_user_id=user_id) for row in rows[:limit]]
+        items = [_mem0_row_to_item(row, default_user_id=user_id) for row in rows]
+        if memory_type:
+            items = [item for item in items if item.memory_type == memory_type]
+        return items[:limit]
 
     def update(
         self,
@@ -401,7 +408,7 @@ class Mem0MemoryService:
             "PUT",
             f"/v1/memories/{memory_id}/",
             json={
-                "memory": updated_content,
+                "text": updated_content,
                 "metadata": merged_metadata,
             },
         )
@@ -428,8 +435,12 @@ class Mem0MemoryService:
         status: str | None = "active",
         limit: int = 80,
     ) -> list[MemoryItem]:
-        params: dict[str, Any] = {"user_id": user_id, "page_size": limit}
-        response = self._request("GET", "/v2/memories/", params=params)
+        response = self._request(
+            "POST",
+            "/v3/memories/",
+            params={"page": 1, "page_size": limit},
+            json={"filters": _mem0_entity_filter(user_id), "show_expired": False},
+        )
         rows = _extract_rows(response)
         items = [_mem0_row_to_item(row, default_user_id=user_id) for row in rows]
         if memory_type:
@@ -568,6 +579,19 @@ class Mem0MemoryService:
         if not response.content:
             return {}
         return response.json()
+
+    def _wait_for_event(self, event_id: str, timeout_seconds: float = 30.0) -> dict[str, Any]:
+        if not event_id:
+            return {}
+        deadline = time.monotonic() + timeout_seconds
+        last_response: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            last_response = self._request("GET", f"/v1/event/{event_id}/")
+            status = str(last_response.get("status", "")).upper()
+            if status in {"SUCCEEDED", "FAILED"}:
+                return last_response
+            time.sleep(1.0)
+        return last_response
 
 
 class LocalMemoryServiceAdapter:
@@ -789,6 +813,10 @@ def _merge_memory_metadata(existing: dict[str, Any], incoming: dict[str, Any]) -
     if existing.get("last_observed_at") or incoming.get("last_observed_at"):
         merged["last_observed_at"] = incoming.get("last_observed_at") or utc_now_iso()
     return merged
+
+
+def _mem0_entity_filter(user_id: str) -> dict[str, Any]:
+    return {"user_id": user_id}
 
 
 def _extractor_source(extractor: PreferenceExtractorProtocol) -> str:
