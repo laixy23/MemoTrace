@@ -11,7 +11,7 @@ It turns files, notes, code, tables, and images into Markdown wiki cards, then s
 - Karpathy-style LLM Wiki organization with `index.md`, `log.md`, and automatic `[[wikilinks]]`
 - knowledge health review
 - web completion to a staging area, then user-confirmed merge into Wiki
-- user preference memory for response style
+- LangMem preference extraction, Mem0-backed long-term memory, and stable Skill distillation
 - preference distillation from interaction history
 - note, report, PPT outline, and Mermaid mindmap generation
 
@@ -50,6 +50,10 @@ Useful model and retrieval settings:
 
 ```powershell
 OPENAI_API_KEY=...
+MEM0_API_KEY=...
+TRACEWIKI_MEMORY_BACKEND=auto
+TRACEWIKI_MEMORY_EXTRACTOR=langmem
+TRACEWIKI_LANGMEM_MODEL=openai:gpt-4.1-mini
 TRACEWIKI_TEXT_MODEL=gpt-4.1-mini
 TRACEWIKI_VISION_MODEL=gpt-4.1-mini
 TRACEWIKI_EMBEDDING_MODEL=text-embedding-3-small
@@ -58,6 +62,8 @@ TRACEWIKI_RERANK_ENABLED=true
 ```
 
 `sqlite` works without extra dependencies. To try optional backends, install `faiss-cpu` or `chromadb` and set `TRACEWIKI_VECTOR_BACKEND` accordingly. Web completion searches the web, fetches candidate pages into `/api/completion/staging`, and only merges a page into `data/raw/web` and Wiki cards after confirmation.
+
+For personalization, TraceWiki uses a three-layer memory design: LangMem extracts durable preference candidates from conversations, Mem0 stores and retrieves long-term memories when `MEM0_API_KEY` is configured, and stable high-confidence preferences are distilled into user Skills under `data/wiki/skills/`. In `auto` mode, missing Mem0 credentials fall back to local SQLite memory for development.
 
 ## LLM Wiki Layer
 
@@ -111,6 +117,7 @@ tracewiki/
 1. Upload a slide photo, a note, and a code file.
 2. Click ingest to generate wiki cards.
 3. Ask a question and inspect the evidence chain.
-4. Save interaction feedback and distill response preferences.
+4. Let QA retrieve memories, save interaction feedback, and extract/update long-term preferences.
 5. Run knowledge health review.
-6. Generate a report, PPT outline, or mindmap.
+6. Distill stable high-confidence preferences into a user Skill.
+7. Generate a report, PPT outline, or mindmap.

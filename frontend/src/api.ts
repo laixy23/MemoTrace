@@ -2,7 +2,9 @@ import type {
   AskResponse,
   CardInfo,
   HealthReviewResponse,
+  MemoryInfo,
   PreferenceCandidate,
+  SkillDistillResponse,
   StagingItemInfo,
   SystemLogInfo,
   UploadResponse,
@@ -59,11 +61,11 @@ export async function rejectWikiProposal(proposalId: string) {
   return request<{ status: string }>(`/api/wiki/proposals/${proposalId}/reject`, { method: "POST" });
 }
 
-export async function askQuestion(question: string, topK = 5) {
+export async function askQuestion(question: string, topK = 5, userId = "default") {
   return request<AskResponse>("/api/qa/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, top_k: topK })
+    body: JSON.stringify({ question, top_k: topK, user_id: userId })
   });
 }
 
@@ -95,6 +97,18 @@ export async function getProfile() {
   return request<UserProfile>("/api/preferences/profile");
 }
 
+export async function listMemories(userId = "default") {
+  return request<MemoryInfo[]>(`/api/preferences/memories?user_id=${encodeURIComponent(userId)}`);
+}
+
+export async function getSkill(userId = "default") {
+  return request<SkillDistillResponse>(`/api/preferences/skill?user_id=${encodeURIComponent(userId)}`);
+}
+
+export async function distillSkill(userId = "default") {
+  return request<SkillDistillResponse>(`/api/preferences/skill/distill?user_id=${encodeURIComponent(userId)}`, { method: "POST" });
+}
+
 export async function saveFeedback(payload: {
   question: string;
   answer_summary: string;
@@ -102,6 +116,7 @@ export async function saveFeedback(payload: {
   user_feedback: string;
   user_action: string;
   accepted: boolean;
+  user_id?: string;
 }) {
   return request<{ status: string }>("/api/preferences/feedback", {
     method: "POST",

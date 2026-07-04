@@ -4,10 +4,18 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException
 
-from backend.app.schemas import InteractionFeedbackRequest, PreferenceCandidateInfo
-from backend.app.services import get_settings, get_store
+from backend.app.schemas import (
+    InteractionFeedbackRequest,
+    MemoryCreateRequest,
+    MemoryInfo,
+    MemoryUpdateRequest,
+    PreferenceCandidateInfo,
+    SkillDistillResponse,
+)
+from backend.app.services import get_memory_service, get_settings, get_store
 from tracewiki.personalization import apply_candidate, load_profile, save_profile
 from tracewiki.preference_distiller import create_interaction_log, distill_preferences
+from tracewiki.skill_distiller import distill_user_skill, load_user_skill, maybe_distill_user_skill, skill_path
 from tracewiki.system_log import record_event
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
@@ -20,8 +28,9 @@ def get_profile() -> dict:
 
 
 @router.post("/feedback")
-def save_feedback(payload: InteractionFeedbackRequest) -> dict[str, str]:
+def save_feedback(payload: InteractionFeedbackRequest) -> dict:
     store = get_store()
+    user_id = payload.user_id.strip() or "default"
     log = create_interaction_log(
         question=payload.question,
         answer_summary=payload.answer_summary,
@@ -37,7 +46,34 @@ def save_feedback(payload: InteractionFeedbackRequest) -> dict[str, str]:
         "Saved user feedback for preference distillation",
         {"user_action": payload.user_action, "accepted": payload.accepted},
     )
-    return {"status": "ok", "log_id": log.log_id}
+    memory_updates = get_memory_service().extract_and_update(
+        user_id=user_id,
+        question=payload.question,
+        answer=payload.answer_summary,
+        feedback=payload.user_feedback,
+        action=payload.user_action,
+        accepted=payload.accepted,
+    )
+    if memory_updates:
+        record_event(
+            store,
+            "memory_updated_from_feedback",
+            f"Updated {len(memory_updates)} user memories from explicit feedback",
+            {"user_id": user_id, "memory_ids": [item.memory_id for item in memory_updates]},
+        )
+        skill_result = maybe_distill_user_skill(
+            get_memory_service(),
+            user_id=user_id,
+            wiki_dir=get_settings().wiki_dir,
+        )
+        if skill_result["updated"]:
+            record_event(
+                store,
+                "preference_skill_auto_distilled",
+                f"Auto-distilled {skill_result['memory_count']} stable memories into user skill",
+                {"user_id": user_id, "path": skill_result["path"]},
+            )
+    return {"status": "ok", "log_id": log.log_id, "memory_updates": len(memory_updates)}
 
 
 @router.get("/interactions")
@@ -96,3 +132,83 @@ def reject_candidate(candidate_id: str) -> dict[str, str]:
     get_store().update_candidate_status(candidate_id, "rejected")
     return {"status": "rejected"}
 
+
+@router.get("/memories", response_model=list[MemoryInfo])
+def list_memories(user_id: str = "default") -> list[MemoryInfo]:
+    memories = get_memory_service().list(user_id=user_id.strip() or "default", status="active", limit=100)
+    return [MemoryInfo(**item.__dict__) for item in memories]
+
+
+@router.get("/memories/search", response_model=list[MemoryInfo])
+def search_memories(query: str, user_id: str = "default", limit: int = 5) -> list[MemoryInfo]:
+    memories = get_memory_service().search(
+        user_id=user_id.strip() or "default",
+        query=query,
+        limit=limit,
+    )
+    return [MemoryInfo(**item.__dict__) for item in memories]
+
+
+@router.post("/memories", response_model=MemoryInfo)
+def add_memory(payload: MemoryCreateRequest) -> MemoryInfo:
+    memory = get_memory_service().add(
+        user_id=payload.user_id.strip() or "default",
+        memory_type=payload.memory_type,
+        content=payload.content,
+        metadata=payload.metadata,
+        confidence=payload.confidence,
+        source=payload.source,
+    )
+    return MemoryInfo(**memory.__dict__)
+
+
+@router.patch("/memories/{memory_id}", response_model=MemoryInfo)
+def update_memory(memory_id: str, payload: MemoryUpdateRequest) -> MemoryInfo:
+    memory = get_memory_service().update(
+        memory_id,
+        content=payload.content,
+        metadata=payload.metadata,
+        confidence=payload.confidence,
+        status=payload.status,
+    )
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return MemoryInfo(**memory.__dict__)
+
+
+@router.delete("/memories/{memory_id}")
+def delete_memory(memory_id: str) -> dict[str, str]:
+    if not get_memory_service().delete(memory_id):
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"status": "deleted"}
+
+
+@router.get("/skill", response_model=SkillDistillResponse)
+def get_skill(user_id: str = "default") -> SkillDistillResponse:
+    settings = get_settings()
+    content = load_user_skill(settings.wiki_dir, user_id.strip() or "default")
+    path = skill_path(settings.wiki_dir, user_id.strip() or "default")
+    return SkillDistillResponse(
+        updated=bool(content),
+        path=str(path) if content else "",
+        content=content,
+        memory_count=content.count("confidence="),
+    )
+
+
+@router.post("/skill/distill", response_model=SkillDistillResponse)
+def distill_skill(user_id: str = "default") -> SkillDistillResponse:
+    settings = get_settings()
+    result = distill_user_skill(
+        get_memory_service(),
+        user_id=user_id.strip() or "default",
+        wiki_dir=settings.wiki_dir,
+    )
+    if result["updated"]:
+        record_event(
+            get_store(),
+            "preference_skill_distilled",
+            f"Distilled {result['memory_count']} stable memories into user skill",
+            {"user_id": user_id, "path": result["path"]},
+        )
+    return SkillDistillResponse(**result)

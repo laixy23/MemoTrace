@@ -187,13 +187,15 @@ textarea {
 }
 
 .evidence-list,
-.wiki-list {
+.wiki-list,
+.memory-list {
   display: grid;
   gap: 10px;
 }
 
 .evidence-list article,
 .wiki-list article,
+.memory-list article,
 .line-item {
   border: 1px solid #dfe6f1;
   padding: 12px;
@@ -201,6 +203,7 @@ textarea {
 
 .evidence-list span,
 .wiki-list span,
+.memory-list span,
 .line-item span,
 .empty {
   color: #657386;

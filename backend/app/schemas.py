@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SourceInfo(BaseModel):
@@ -51,6 +51,7 @@ class UploadResponse(BaseModel):
 class AskRequest(BaseModel):
     question: str
     top_k: int = 5
+    user_id: str = "default"
 
 
 class EvidenceResult(BaseModel):
@@ -61,11 +62,27 @@ class EvidenceResult(BaseModel):
     snippet: str
 
 
+class MemoryInfo(BaseModel):
+    memory_id: str
+    user_id: str
+    memory_type: str
+    content: str
+    metadata: dict[str, Any]
+    confidence: float
+    source: str
+    status: str
+    support_count: int
+    created_at: str
+    updated_at: str
+
+
 class AskResponse(BaseModel):
     answer: str
     claims: list[dict[str, Any]]
     graph_mermaid: str
     evidence: list[EvidenceResult]
+    memories: list[MemoryInfo] = Field(default_factory=list)
+    memory_updates: list[MemoryInfo] = Field(default_factory=list)
 
 
 class HealthIssueInfo(BaseModel):
@@ -113,6 +130,7 @@ class SystemLogInfo(BaseModel):
 
 
 class InteractionFeedbackRequest(BaseModel):
+    user_id: str = "default"
     question: str
     answer_summary: str
     answer_type: str = "technical_explanation"
@@ -130,6 +148,29 @@ class PreferenceCandidateInfo(BaseModel):
     confidence: float
     status: str
     created_at: str
+
+
+class MemoryUpdateRequest(BaseModel):
+    content: str | None = None
+    metadata: dict[str, Any] | None = None
+    confidence: float | None = None
+    status: str | None = None
+
+
+class MemoryCreateRequest(BaseModel):
+    user_id: str = "default"
+    memory_type: str
+    content: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = 0.6
+    source: str = "manual"
+
+
+class SkillDistillResponse(BaseModel):
+    updated: bool
+    path: str
+    content: str
+    memory_count: int
 
 
 class GenerateResponse(BaseModel):

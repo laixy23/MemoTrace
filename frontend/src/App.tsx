@@ -17,13 +17,16 @@ import {
   acceptCandidate,
   askQuestion,
   distillPreferences,
+  distillSkill,
   generateContent,
   getProfile,
+  getSkill,
   getWikiIndex,
   getWikiLog,
   healthCheck,
   listCandidates,
   listCards,
+  listMemories,
   listStaging,
   listSystemLogs,
   listWikiProposals,
@@ -39,7 +42,9 @@ import type {
   AskResponse,
   CardInfo,
   HealthReviewResponse,
+  MemoryInfo,
   PreferenceCandidate,
+  SkillDistillResponse,
   StagingItemInfo,
   SystemLogInfo,
   UserProfile,
@@ -69,6 +74,7 @@ export function App() {
   const [wikiLog, setWikiLog] = useState<WikiPageInfo | null>(null);
   const [wikiProposals, setWikiProposals] = useState<WikiProposalInfo[]>([]);
   const [file, setFile] = useState<File | null>(null);
+  const [userId, setUserId] = useState("default");
   const [question, setQuestion] = useState("这个知识库目前有哪些核心能力？");
   const [answer, setAnswer] = useState<AskResponse | null>(null);
   const [feedback, setFeedback] = useState("");
@@ -76,6 +82,8 @@ export function App() {
   const [health, setHealth] = useState<HealthReviewResponse | null>(null);
   const [webQuery, setWebQuery] = useState("个人知识库智能助手 RAG 多模态 可回溯");
   const [candidates, setCandidates] = useState<PreferenceCandidate[]>([]);
+  const [memories, setMemories] = useState<MemoryInfo[]>([]);
+  const [skill, setSkill] = useState<SkillDistillResponse | null>(null);
   const [generated, setGenerated] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -85,14 +93,16 @@ export function App() {
   );
 
   async function refreshAll() {
-    const [cardItems, logItems, profileInfo, pendingItems, indexPage, logPage, proposalItems] = await Promise.all([
+    const [cardItems, logItems, profileInfo, pendingItems, indexPage, logPage, proposalItems, memoryItems, skillInfo] = await Promise.all([
       listCards(),
       listSystemLogs(),
       getProfile(),
       listStaging(),
       getWikiIndex(),
       getWikiLog(),
-      listWikiProposals()
+      listWikiProposals(),
+      listMemories(userId),
+      getSkill(userId)
     ]);
     setCards(cardItems);
     setLogs(logItems);
@@ -101,6 +111,8 @@ export function App() {
     setWikiIndex(indexPage);
     setWikiLog(logPage);
     setWikiProposals(proposalItems);
+    setMemories(memoryItems);
+    setSkill(skillInfo);
   }
 
   useEffect(() => {
@@ -128,7 +140,7 @@ export function App() {
   async function handleAsk() {
     setBusy(true);
     try {
-      const result = await askQuestion(question);
+      const result = await askQuestion(question, 5, userId);
       setAnswer(result);
       setStatus(`已生成回答，召回 ${result.evidence.length} 条证据`);
       await refreshAll();
@@ -147,7 +159,8 @@ export function App() {
       answer_type: "technical_explanation",
       user_feedback: feedback,
       user_action: feedbackAction,
-      accepted: feedbackAction !== "not_helpful"
+      accepted: feedbackAction !== "not_helpful",
+      user_id: userId
     });
     setFeedback("");
     setStatus("反馈已保存，可进入偏好记忆蒸馏");
@@ -234,6 +247,13 @@ export function App() {
     setCandidates(await listCandidates());
   }
 
+  async function handleDistillSkill() {
+    const result = await distillSkill(userId);
+    setSkill(result);
+    setStatus(result.updated ? `已蒸馏 ${result.memory_count} 条稳定记忆到 Skill` : "暂无满足阈值的稳定记忆");
+    await refreshAll();
+  }
+
   async function handleGenerate(kind: "note" | "report" | "ppt" | "mindmap") {
     const result = await generateContent(kind);
     setGenerated(result.content);
@@ -288,6 +308,7 @@ export function App() {
         <section className="workspace two-column">
           <div className="panel">
             <h2>知识问答</h2>
+            <input value={userId} onChange={(event) => setUserId(event.target.value)} placeholder="user_id" />
             <textarea value={question} onChange={(event) => setQuestion(event.target.value)} />
             <button className="primary-button" disabled={busy} onClick={handleAsk} type="button">
               <Send size={16} />
@@ -443,9 +464,35 @@ export function App() {
         <section className="workspace two-column">
           <div className="panel">
             <h2>当前用户画像</h2>
+            <div className="feedback-row">
+              <input value={userId} onChange={(event) => setUserId(event.target.value)} placeholder="user_id" />
+              <button type="button" onClick={refreshAll}>刷新记忆</button>
+            </div>
             <pre className="code-block">{profile ? JSON.stringify(profile, null, 2) : "未加载"}</pre>
+            <h3>稳定 Skill</h3>
+            <div className="button-row">
+              <button className="primary-button" onClick={handleDistillSkill} type="button">
+                <Sparkles size={16} />
+                蒸馏 Skill
+              </button>
+            </div>
+            <pre className="markdown-block">{skill?.content || "暂无稳定 Skill。"}</pre>
           </div>
           <div className="panel">
+            <h2>长期记忆</h2>
+            <div className="memory-list">
+              {memories.length ? (
+                memories.map((memory) => (
+                  <article className="line-item" key={memory.memory_id}>
+                    <strong>{memory.memory_type}</strong>
+                    <span>confidence {memory.confidence.toFixed(2)} · support {memory.support_count} · {memory.source}</span>
+                    <p>{memory.content}</p>
+                  </article>
+                ))
+              ) : (
+                <p className="empty">当前用户暂无长期记忆。</p>
+              )}
+            </div>
             <h2>偏好候选</h2>
             <div className="button-row">
               <button className="primary-button" onClick={handleDistill} type="button">
