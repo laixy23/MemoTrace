@@ -129,3 +129,15 @@ class StagingItem:
     content: str
     status: str = "pending"
     created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class WikiMaintenanceProposal:
+    proposal_id: str
+    proposal_type: str
+    title: str
+    rationale: str
+    proposed_content: str
+    target_card_id: str = ""
+    status: str = "pending"
+    created_at: str = field(default_factory=utc_now_iso)

@@ -16,6 +16,17 @@ export interface WikiPageInfo {
   content: string;
 }
 
+export interface WikiProposalInfo {
+  proposal_id: string;
+  proposal_type: string;
+  title: string;
+  rationale: string;
+  proposed_content: string;
+  target_card_id: string;
+  status: string;
+  created_at: string;
+}
+
 export interface UploadResponse {
   card: CardInfo;
   message: string;

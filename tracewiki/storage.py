@@ -13,6 +13,7 @@ from .models import (
     StagingItem,
     SystemLog,
     VectorRecord,
+    WikiMaintenanceProposal,
 )
 
 
@@ -95,6 +96,17 @@ CREATE TABLE IF NOT EXISTS staging_items (
   url TEXT NOT NULL,
   summary TEXT NOT NULL,
   content TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wiki_maintenance_proposals (
+  proposal_id TEXT PRIMARY KEY,
+  proposal_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  rationale TEXT NOT NULL,
+  proposed_content TEXT NOT NULL,
+  target_card_id TEXT NOT NULL,
   status TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
@@ -487,3 +499,57 @@ class KnowledgeStore:
     def update_staging_status(self, staging_id: str, status: str) -> None:
         with self._connect() as con:
             con.execute("UPDATE staging_items SET status = ? WHERE staging_id = ?", (status, staging_id))
+
+    def add_wiki_proposal(self, proposal: WikiMaintenanceProposal) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                INSERT OR REPLACE INTO wiki_maintenance_proposals
+                (proposal_id, proposal_type, title, rationale, proposed_content, target_card_id, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    proposal.proposal_id,
+                    proposal.proposal_type,
+                    proposal.title,
+                    proposal.rationale,
+                    proposal.proposed_content,
+                    proposal.target_card_id,
+                    proposal.status,
+                    proposal.created_at,
+                ),
+            )
+
+    def list_wiki_proposals(self, status: str | None = None) -> list[WikiMaintenanceProposal]:
+        query = """
+            SELECT proposal_id, proposal_type, title, rationale, proposed_content,
+                   target_card_id, status, created_at
+            FROM wiki_maintenance_proposals
+        """
+        params: tuple[str, ...] = ()
+        if status:
+            query += " WHERE status = ?"
+            params = (status,)
+        query += " ORDER BY created_at DESC"
+        with self._connect() as con:
+            rows = con.execute(query, params).fetchall()
+        return [
+            WikiMaintenanceProposal(
+                proposal_id=row[0],
+                proposal_type=row[1],
+                title=row[2],
+                rationale=row[3],
+                proposed_content=row[4],
+                target_card_id=row[5],
+                status=row[6],
+                created_at=row[7],
+            )
+            for row in rows
+        ]
+
+    def update_wiki_proposal_status(self, proposal_id: str, status: str) -> None:
+        with self._connect() as con:
+            con.execute(
+                "UPDATE wiki_maintenance_proposals SET status = ? WHERE proposal_id = ?",
+                (status, proposal_id),
+            )

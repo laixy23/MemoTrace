@@ -7,7 +7,8 @@ import type {
   SystemLogInfo,
   UploadResponse,
   UserProfile,
-  WikiPageInfo
+  WikiPageInfo,
+  WikiProposalInfo
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -44,6 +45,18 @@ export async function getWikiIndex() {
 
 export async function getWikiLog() {
   return request<WikiPageInfo>("/api/wiki/log");
+}
+
+export async function listWikiProposals() {
+  return request<WikiProposalInfo[]>("/api/wiki/proposals");
+}
+
+export async function acceptWikiProposal(proposalId: string) {
+  return request<{ status: string }>(`/api/wiki/proposals/${proposalId}/accept`, { method: "POST" });
+}
+
+export async function rejectWikiProposal(proposalId: string) {
+  return request<{ status: string }>(`/api/wiki/proposals/${proposalId}/reject`, { method: "POST" });
 }
 
 export async function askQuestion(question: string, topK = 5) {

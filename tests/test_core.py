@@ -13,10 +13,29 @@ from tracewiki.spans import build_text_spans
 from tracewiki.storage import KnowledgeStore
 from tracewiki.vector_index import hash_embedding
 from tracewiki.web_completion import merge_staging_item
-from tracewiki.wiki_agent import wiki_guided_results
+from tracewiki.wiki_agent import llm_navigation_plan, wiki_guided_results
 from tracewiki.wiki_builder import build_card_from_text
+from tracewiki.wiki_maintenance import (
+    detect_conflicts_with_llm,
+    propose_answer_capture,
+    propose_page_updates_with_llm,
+)
 from tracewiki.wiki_organizer import enrich_card_with_links, render_index_page, render_log_page
 from tracewiki.models import SourceRecord
+
+
+class FakeClient:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.calls: list[str] = []
+
+    @property
+    def enabled(self) -> bool:
+        return True
+
+    def chat(self, messages, model=None):
+        self.calls.append(messages[-1]["content"])
+        return self.text
 
 
 def make_settings(tmp_path: Path) -> Settings:
@@ -223,6 +242,59 @@ def test_wiki_card_gets_related_wikilinks_section():
     assert "[[Evidence_Graph|Evidence Graph]]" in enriched.content
 
 
+def test_llm_wikilinks_override_rule_links_when_available():
+    card = KnowledgeCard(
+        card_id="card-rag",
+        title="RAG Pipeline",
+        summary="Retrieval with evidence.",
+        tags=["RAG"],
+        category="concept",
+        source_id="s1",
+        source_path="raw/rag.md",
+        content="# RAG Pipeline\n\nRetrieval with evidence.",
+        evidence=[],
+    )
+    semantic = KnowledgeCard(
+        card_id="card-source",
+        title="SourceSpan Evidence",
+        summary="Fine-grained traceable snippets.",
+        tags=["Traceability"],
+        category="evidence",
+        source_id="s2",
+        source_path="raw/source.md",
+        content="# SourceSpan Evidence",
+        evidence=[],
+    )
+    client = FakeClient('{"links":[{"title":"SourceSpan Evidence","reason":"semantic evidence traceability"}]}')
+
+    enriched = enrich_card_with_links(card, [semantic], client=client)
+
+    assert "[[SourceSpan_Evidence|SourceSpan Evidence]]" in enriched.content
+    assert "semantic evidence traceability" in enriched.content
+
+
+def test_llm_index_rendering_uses_model_maintained_outline(tmp_path):
+    settings = make_settings(tmp_path)
+    ensure_dirs(settings)
+    card = KnowledgeCard(
+        card_id="card-index",
+        title="TraceWiki Architecture",
+        summary="A wiki-based RAG architecture.",
+        tags=["RAG"],
+        category="architecture",
+        source_id="source-index",
+        source_path="raw/arch.md",
+        content="# TraceWiki Architecture",
+        evidence=[],
+    )
+    client = FakeClient("# TraceWiki Index\n\n## Important\n- [[TraceWiki_Architecture|TraceWiki Architecture]] - curated by LLM")
+
+    path = render_index_page([card], settings.wiki_dir, client=client)
+
+    text = path.read_text(encoding="utf-8")
+    assert "curated by LLM" in text
+
+
 def test_log_page_renders_system_events(tmp_path):
     settings = make_settings(tmp_path)
     ensure_dirs(settings)
@@ -243,6 +315,24 @@ def test_log_page_renders_system_events(tmp_path):
     assert path.name == "log.md"
     assert "wiki_card_created" in text
     assert "Created Wiki card" in text
+
+
+def test_llm_log_page_summarizes_maintenance_events(tmp_path):
+    settings = make_settings(tmp_path)
+    ensure_dirs(settings)
+    log = SystemLog(
+        log_id="log-1",
+        action_type="wiki_card_created",
+        summary="Created Wiki card",
+        payload={"card_id": "c1"},
+        created_at="2026-07-04T00:00:00+00:00",
+    )
+    client = FakeClient("# TraceWiki Log\n\n## 2026-07-04\n- Updated [[RAG]] from a new source.")
+
+    path = render_log_page([log], settings.wiki_dir, client=client)
+
+    text = path.read_text(encoding="utf-8")
+    assert "Updated [[RAG]]" in text
 
 
 def test_wiki_guided_results_add_index_and_followed_page(tmp_path):
@@ -289,9 +379,106 @@ def test_wiki_guided_results_add_index_and_followed_page(tmp_path):
     assert "follow_link" in locators
 
 
+def test_llm_navigation_plan_selects_pages_and_followups():
+    architecture = KnowledgeCard(
+        card_id="card-arch",
+        title="TraceWiki Architecture",
+        summary="Links to evidence graph.",
+        tags=["RAG"],
+        category="architecture",
+        source_id="s1",
+        source_path="raw/arch.md",
+        content="# TraceWiki Architecture",
+        evidence=[],
+    )
+    evidence = KnowledgeCard(
+        card_id="card-evidence",
+        title="Evidence Graph",
+        summary="Explains traceable citations.",
+        tags=["Evidence"],
+        category="concept",
+        source_id="s2",
+        source_path="raw/evidence.md",
+        content="# Evidence Graph",
+        evidence=[],
+    )
+    client = FakeClient('{"read_pages":["Evidence Graph"],"follow_links":["TraceWiki_Architecture"],"sufficient":true}')
+
+    plan = llm_navigation_plan("How is evidence traced?", [architecture, evidence], client)
+
+    assert plan["read_pages"] == ["Evidence Graph"]
+    assert plan["follow_links"] == ["TraceWiki_Architecture"]
+    assert plan["sufficient"] is True
+
+
+def test_llm_page_update_conflict_and_answer_capture_proposals():
+    old = KnowledgeCard(
+        card_id="old",
+        title="RAG",
+        summary="Old summary.",
+        tags=["RAG"],
+        category="concept",
+        source_id="s1",
+        source_path="raw/old.md",
+        content="# RAG\n\nOld content.",
+        evidence=[],
+    )
+    new = KnowledgeCard(
+        card_id="new",
+        title="Hybrid Retrieval",
+        summary="New evidence.",
+        tags=["RAG"],
+        category="concept",
+        source_id="s2",
+        source_path="raw/new.md",
+        content="# Hybrid Retrieval\n\nNew content.",
+        evidence=[],
+    )
+    update_client = FakeClient(
+        '{"updates":[{"target_title":"RAG","rationale":"merge new hybrid retrieval notes","proposed_content":"# RAG\\n\\nUpdated with hybrid retrieval."}]}'
+    )
+    conflict_client = FakeClient(
+        '{"conflicts":[{"title":"RAG definition conflict","target_title":"RAG","rationale":"definitions disagree","proposed_content":"Review old and new evidence."}]}'
+    )
+    capture_client = FakeClient(
+        '{"capture":true,"title":"FAQ Evidence Tracing","rationale":"useful repeated question","content":"# FAQ Evidence Tracing\\n\\nAnswer summary."}'
+    )
+
+    updates = propose_page_updates_with_llm(new, [old], update_client)
+    conflicts = detect_conflicts_with_llm([old, new], conflict_client)
+    captures = propose_answer_capture("How trace evidence?", "Answer summary.", [old], capture_client)
+
+    assert updates[0].proposal_type == "update_page"
+    assert updates[0].target_card_id == "old"
+    assert "hybrid retrieval" in updates[0].proposed_content
+    assert conflicts[0].proposal_type == "conflict"
+    assert captures[0].proposal_type == "answer_capture"
+
+
 def test_health_check_empty_kb_reports_gap():
     issues = review_knowledge_base([])
     assert issues[0].issue_type == "coverage_gap"
+
+
+def test_llm_health_review_adds_semantic_issues():
+    card = KnowledgeCard(
+        card_id="health-1",
+        title="RAG",
+        summary="Retrieval augmented generation with citations.",
+        tags=["RAG"],
+        category="concept",
+        source_id="s1",
+        source_path="raw/rag.md",
+        content="# RAG\n\nRetrieval augmented generation.",
+        evidence=[{"source_path": "raw/rag.md"}],
+    )
+    client = FakeClient(
+        '{"issues":[{"title":"Missing evaluation plan","severity":"medium","issue_type":"evaluation_gap","reason":"No metrics are described","suggestion":"Add retrieval and answer quality metrics."}]}'
+    )
+
+    issues = review_knowledge_base([card], client=client)
+
+    assert any(issue.issue_type == "evaluation_gap" for issue in issues)
 
 
 def test_preference_distiller_suggests_code_examples():

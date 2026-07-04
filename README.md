@@ -63,10 +63,12 @@ TRACEWIKI_RERANK_ENABLED=true
 
 TraceWiki keeps a lightweight Wiki navigation layer alongside vector retrieval:
 
-- `data/wiki/index.md` is regenerated from current cards and acts as the first page an agent reads.
-- `data/wiki/log.md` mirrors system events into a readable Markdown activity log.
-- new cards are enriched with `[[Wiki_Links|Wiki Links]]` to related existing cards when tags, titles, or categories overlap.
-- QA augments hybrid retrieval with a Wiki-guided read step: include the index page, read matched Wiki cards, then follow explicit links.
+- `data/wiki/index.md` is LLM-maintained when a model is configured, with deterministic category rendering as fallback.
+- `data/wiki/log.md` is summarized as a readable maintenance diary by the LLM, with event-list rendering as fallback.
+- new cards are enriched with semantic `[[Wiki_Links|Wiki Links]]` from the LLM, with tag/title/category links as fallback.
+- QA augments hybrid retrieval with LLM-guided Wiki navigation: choose pages to read, follow links, and record whether evidence is sufficient.
+- LLM maintenance proposals are staged for confirmation: old-page updates, conflict reviews, and answer-capture pages.
+- accepted answer-capture proposals become Wiki cards with SourceSpan evidence and vector records.
 
 This keeps the project close to Karpathy's LLM Wiki idea while retaining the practical RAG pieces needed for the hackathon demo.
 

@@ -13,6 +13,7 @@ import {
   Sparkles
 } from "lucide-react";
 import {
+  acceptWikiProposal,
   acceptCandidate,
   askQuestion,
   distillPreferences,
@@ -25,8 +26,10 @@ import {
   listCards,
   listStaging,
   listSystemLogs,
+  listWikiProposals,
   mergeStaging,
   rejectCandidate,
+  rejectWikiProposal,
   reviewHealth,
   runWebCompletion,
   saveFeedback,
@@ -40,7 +43,8 @@ import type {
   StagingItemInfo,
   SystemLogInfo,
   UserProfile,
-  WikiPageInfo
+  WikiPageInfo,
+  WikiProposalInfo
 } from "./types";
 
 type TabKey = "qa" | "wiki" | "health" | "memory" | "logs" | "generate";
@@ -63,6 +67,7 @@ export function App() {
   const [stagingItems, setStagingItems] = useState<StagingItemInfo[]>([]);
   const [wikiIndex, setWikiIndex] = useState<WikiPageInfo | null>(null);
   const [wikiLog, setWikiLog] = useState<WikiPageInfo | null>(null);
+  const [wikiProposals, setWikiProposals] = useState<WikiProposalInfo[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("这个知识库目前有哪些核心能力？");
   const [answer, setAnswer] = useState<AskResponse | null>(null);
@@ -80,13 +85,14 @@ export function App() {
   );
 
   async function refreshAll() {
-    const [cardItems, logItems, profileInfo, pendingItems, indexPage, logPage] = await Promise.all([
+    const [cardItems, logItems, profileInfo, pendingItems, indexPage, logPage, proposalItems] = await Promise.all([
       listCards(),
       listSystemLogs(),
       getProfile(),
       listStaging(),
       getWikiIndex(),
-      getWikiLog()
+      getWikiLog(),
+      listWikiProposals()
     ]);
     setCards(cardItems);
     setLogs(logItems);
@@ -94,6 +100,7 @@ export function App() {
     setStagingItems(pendingItems);
     setWikiIndex(indexPage);
     setWikiLog(logPage);
+    setWikiProposals(proposalItems);
   }
 
   useEffect(() => {
@@ -185,6 +192,32 @@ export function App() {
       await refreshAll();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "合并失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAcceptWikiProposal(proposalId: string) {
+    setBusy(true);
+    try {
+      await acceptWikiProposal(proposalId);
+      setStatus("LLM 维护提案已接受并应用");
+      await refreshAll();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "接受提案失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRejectWikiProposal(proposalId: string) {
+    setBusy(true);
+    try {
+      await rejectWikiProposal(proposalId);
+      setStatus("LLM 维护提案已拒绝");
+      await refreshAll();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "拒绝提案失败");
     } finally {
       setBusy(false);
     }
@@ -323,6 +356,30 @@ export function App() {
             <pre className="markdown-block">{wikiIndex?.content || "index.md 会在摄入资料后自动生成。"}</pre>
             <h3>活动日志</h3>
             <pre className="markdown-block">{wikiLog?.content || "log.md 会记录摄入、检索、回答和补全事件。"}</pre>
+            <h3>LLM 维护提案</h3>
+            {wikiProposals.length ? (
+              wikiProposals.map((proposal) => (
+                <article className="line-item" key={proposal.proposal_id}>
+                  <strong>{proposal.title}</strong>
+                  <span>{proposal.proposal_type} · {proposal.created_at}</span>
+                  <p>{proposal.rationale}</p>
+                  <details>
+                    <summary>查看拟修改内容</summary>
+                    <pre>{proposal.proposed_content}</pre>
+                  </details>
+                  <div className="button-row">
+                    <button onClick={() => handleAcceptWikiProposal(proposal.proposal_id)} disabled={busy} type="button">
+                      接受并应用
+                    </button>
+                    <button onClick={() => handleRejectWikiProposal(proposal.proposal_id)} disabled={busy} type="button">
+                      拒绝
+                    </button>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <p className="empty">配置 LLM 后，旧页更新、冲突审查、问答沉淀会先进入这里等待确认。</p>
+            )}
           </div>
         </section>
       ) : null}

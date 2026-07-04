@@ -26,6 +26,7 @@ from tracewiki.reranker import rerank_results
 from tracewiki.storage import KnowledgeStore
 from tracewiki.system_log import record_event
 from tracewiki.wiki_agent import wiki_guided_results
+from tracewiki.wiki_maintenance import propose_answer_capture
 
 
 load_dotenv()
@@ -123,7 +124,7 @@ with tab_qa:
         )
         results = HybridRetriever(cards, spans, vectors, client).search(question, limit=15)
         results = rerank_results(question, results, client, limit=5)
-        results = wiki_guided_results(question, cards, results, settings.wiki_dir, limit=8)
+        results = wiki_guided_results(question, cards, results, settings.wiki_dir, limit=8, client=client)
         record_event(
             store,
             "retrieval_completed",
@@ -131,11 +132,19 @@ with tab_qa:
             {"result_titles": [item.title for item in results], "wiki_guided": True},
         )
         answer = answer_question(question, results, profile, client)
+        proposals = propose_answer_capture(question, answer.text, cards, client)
+        for proposal in proposals:
+            store.add_wiki_proposal(proposal)
         record_event(
             store,
             "answer_generated",
             "Generated source-grounded answer",
-            {"claim_count": len(answer.claims), "answer_length": len(answer.text)},
+            {
+                "claim_count": len(answer.claims),
+                "answer_length": len(answer.text),
+                "llm_answer_capture_proposals": len(proposals),
+            },
+            client=client,
         )
         st.session_state["last_question"] = question
         st.session_state["last_answer"] = answer.text

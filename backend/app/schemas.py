@@ -32,6 +32,17 @@ class WikiPageInfo(BaseModel):
     content: str
 
 
+class WikiProposalInfo(BaseModel):
+    proposal_id: str
+    proposal_type: str
+    title: str
+    rationale: str
+    proposed_content: str
+    target_card_id: str
+    status: str
+    created_at: str
+
+
 class UploadResponse(BaseModel):
     card: CardInfo
     message: str

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 
+from .llm import json_or_empty
 from .models import KnowledgeCard
 
 
@@ -14,7 +16,7 @@ class HealthIssue:
     suggestion: str
 
 
-def review_knowledge_base(cards: list[KnowledgeCard]) -> list[HealthIssue]:
+def review_knowledge_base(cards: list[KnowledgeCard], client=None) -> list[HealthIssue]:
     issues: list[HealthIssue] = []
     if not cards:
         return [
@@ -83,7 +85,7 @@ def review_knowledge_base(cards: list[KnowledgeCard]) -> list[HealthIssue]:
                     suggestion="可联网查询公开资料，或提醒用户上传更权威的私有材料。",
                 )
             )
-    return issues
+    return issues + llm_review_issues(cards, client)
 
 
 def collect_topic_counts(cards: list[KnowledgeCard]) -> dict[str, int]:
@@ -92,6 +94,53 @@ def collect_topic_counts(cards: list[KnowledgeCard]) -> dict[str, int]:
         for tag in card.tags:
             counts[tag] = counts.get(tag, 0) + 1
     return counts
+
+
+def llm_review_issues(cards: list[KnowledgeCard], client) -> list[HealthIssue]:
+    if not getattr(client, "enabled", False) or not cards:
+        return []
+    payload = [
+        {
+            "title": card.title,
+            "summary": card.summary,
+            "tags": card.tags,
+            "category": card.category,
+            "source_path": card.source_path,
+            "evidence_count": len(card.evidence),
+            "content_excerpt": card.content[:1200],
+        }
+        for card in cards[:40]
+    ]
+    prompt = (
+        "You audit a personal LLM Wiki for semantic gaps, missing evaluations, contradictions, weak sources, "
+        "duplicate pages, and stale knowledge. Return JSON only: "
+        "{\"issues\":[{\"title\":\"...\",\"severity\":\"low|medium|high\","
+        "\"issue_type\":\"...\",\"reason\":\"...\",\"suggestion\":\"...\"}]}.\n\n"
+        f"{json.dumps(payload, ensure_ascii=False)}"
+    )
+    try:
+        data = json_or_empty(client.chat([{"role": "user", "content": prompt}]))
+    except Exception:
+        return []
+    issues = []
+    for item in data.get("issues", [])[:10] if isinstance(data, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", "")).strip()
+        reason = str(item.get("reason", "")).strip()
+        suggestion = str(item.get("suggestion", "")).strip()
+        if not title or not reason:
+            continue
+        issues.append(
+            HealthIssue(
+                title=title,
+                severity=str(item.get("severity", "medium")).strip() or "medium",
+                issue_type=str(item.get("issue_type", "semantic_gap")).strip() or "semantic_gap",
+                reason=reason,
+                suggestion=suggestion or "Review and enrich the related Wiki pages.",
+            )
+        )
+    return issues
 
 
 def render_health_report(issues: list[HealthIssue]) -> str:
@@ -110,4 +159,3 @@ def render_health_report(issues: list[HealthIssue]) -> str:
             ]
         )
     return "\n".join(lines)
-

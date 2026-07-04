@@ -12,6 +12,7 @@ from tracewiki.qa import answer_question
 from tracewiki.reranker import rerank_results
 from tracewiki.system_log import record_event
 from tracewiki.wiki_agent import wiki_guided_results
+from tracewiki.wiki_maintenance import propose_answer_capture
 
 router = APIRouter(prefix="/qa", tags=["qa"])
 
@@ -37,7 +38,7 @@ def ask(payload: AskRequest) -> AskResponse:
     )
     results = HybridRetriever(cards, spans, vectors, client).search(question, limit=max(payload.top_k * 3, 10))
     results = rerank_results(question, results, client, limit=payload.top_k)
-    results = wiki_guided_results(question, cards, results, settings.wiki_dir, limit=max(payload.top_k + 3, 8))
+    results = wiki_guided_results(question, cards, results, settings.wiki_dir, limit=max(payload.top_k + 3, 8), client=client)
     record_event(
         store,
         "retrieval_completed",
@@ -49,11 +50,19 @@ def ask(payload: AskRequest) -> AskResponse:
         },
     )
     answer = answer_question(question, results, profile, client)
+    proposals = propose_answer_capture(question, answer.text, cards, client)
+    for proposal in proposals:
+        store.add_wiki_proposal(proposal)
     record_event(
         store,
         "answer_generated",
         "Generated source-grounded answer",
-        {"claim_count": len(answer.claims), "answer_length": len(answer.text)},
+        {
+            "claim_count": len(answer.claims),
+            "answer_length": len(answer.text),
+            "llm_answer_capture_proposals": len(proposals),
+        },
+        client=client,
     )
     claims = [
         {"text": claim.text, "confidence": claim.confidence, "evidence": claim.evidence}

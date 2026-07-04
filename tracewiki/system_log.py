@@ -12,6 +12,7 @@ def record_event(
     action_type: str,
     summary: str,
     payload: dict[str, Any] | None = None,
+    client=None,
 ) -> None:
     payload = payload or {}
     seed = f"{action_type}|{summary}|{payload}|{len(store.list_system_logs(limit=500))}"
@@ -26,6 +27,6 @@ def record_event(
     try:
         from .wiki_organizer import render_log_page
 
-        render_log_page(store.list_system_logs(), store.wiki_dir)
+        render_log_page(store.list_system_logs(), store.wiki_dir, client=client)
     except Exception:
         pass
