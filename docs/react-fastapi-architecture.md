@@ -29,6 +29,13 @@ Main API routes:
 - `POST /api/preferences/distill`
 - `GET /api/preferences/candidates`
 - `POST /api/preferences/candidates/{id}/accept`
+- `GET /api/preferences/memories`
+- `GET /api/preferences/memories/search`
+- `POST /api/preferences/memories`
+- `PATCH /api/preferences/memories/{id}`
+- `DELETE /api/preferences/memories/{id}`
+- `GET /api/preferences/skill`
+- `POST /api/preferences/skill/distill`
 - `POST /api/generate/{kind}`
 
 ## Frontend
@@ -60,7 +67,6 @@ The frontend is aligned with these TraceWiki capabilities:
 - ask questions with SourceSpan evidence
 - show a Mermaid evidence work graph
 - run knowledge health review
-- save feedback and distill preferences
+- save feedback, inspect long-term memories, and distill stable preference Skills
 - inspect system operation logs
 - generate notes, reports, PPT outlines, and mindmaps
-

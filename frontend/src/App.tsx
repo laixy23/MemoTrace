@@ -15,18 +15,30 @@ import {
   acceptCandidate,
   askQuestion,
   distillPreferences,
+  distillSkill,
   generateContent,
+  getSkill,
   getProfile,
   healthCheck,
   listCandidates,
   listCards,
+  listMemories,
   listSystemLogs,
   rejectCandidate,
   reviewHealth,
   saveFeedback,
   uploadDocument
 } from "./api";
-import type { AskResponse, CardInfo, HealthReviewResponse, PreferenceCandidate, SystemLogInfo, UserProfile } from "./types";
+import type {
+  AskResponse,
+  CardInfo,
+  HealthReviewResponse,
+  MemoryInfo,
+  PreferenceCandidate,
+  SkillDistillResponse,
+  SystemLogInfo,
+  UserProfile
+} from "./types";
 
 type TabKey = "qa" | "wiki" | "health" | "memory" | "logs" | "generate";
 
@@ -45,6 +57,8 @@ export function App() {
   const [cards, setCards] = useState<CardInfo[]>([]);
   const [logs, setLogs] = useState<SystemLogInfo[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [memories, setMemories] = useState<MemoryInfo[]>([]);
+  const [skill, setSkill] = useState<SkillDistillResponse | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("这个知识库目前有哪些核心能力？");
   const [answer, setAnswer] = useState<AskResponse | null>(null);
@@ -58,10 +72,18 @@ export function App() {
   const spanEvidenceCount = useMemo(() => answer?.evidence.filter((item) => item.locator !== "wiki_card").length ?? 0, [answer]);
 
   async function refreshAll() {
-    const [cardItems, logItems, profileInfo] = await Promise.all([listCards(), listSystemLogs(), getProfile()]);
+    const [cardItems, logItems, profileInfo, memoryItems, skillInfo] = await Promise.all([
+      listCards(),
+      listSystemLogs(),
+      getProfile(),
+      listMemories(),
+      getSkill()
+    ]);
     setCards(cardItems);
     setLogs(logItems);
     setProfile(profileInfo);
+    setMemories(memoryItems);
+    setSkill(skillInfo);
   }
 
   useEffect(() => {
@@ -108,7 +130,8 @@ export function App() {
       answer_type: "technical_explanation",
       user_feedback: feedback,
       user_action: feedbackAction,
-      accepted: feedbackAction !== "not_helpful"
+      accepted: feedbackAction !== "not_helpful",
+      user_id: "default"
     });
     setFeedback("");
     setStatus("反馈已保存，可进入偏好记忆蒸馏");
@@ -131,6 +154,13 @@ export function App() {
 
   async function refreshCandidates() {
     setCandidates(await listCandidates());
+  }
+
+  async function handleSkillDistill() {
+    const result = await distillSkill();
+    setSkill(result);
+    setStatus(result.updated ? `已蒸馏 ${result.memory_count} 条稳定记忆` : "稳定偏好信号还不够");
+    await refreshAll();
   }
 
   async function handleGenerate(kind: "note" | "report" | "ppt" | "mindmap") {
@@ -281,6 +311,17 @@ export function App() {
           <div className="panel">
             <h2>当前用户画像</h2>
             <pre className="code-block">{profile ? JSON.stringify(profile, null, 2) : "未加载"}</pre>
+            <h3>SQLite 长期记忆</h3>
+            <div className="memory-list">
+              {memories.map((memory) => (
+                <article className="line-item" key={memory.memory_id}>
+                  <strong>{memory.memory_type}</strong>
+                  <p>{memory.content}</p>
+                  <span>confidence {memory.confidence.toFixed(2)} · support {memory.support_count}</span>
+                </article>
+              ))}
+              {memories.length === 0 ? <p className="empty">提问或保存反馈后会自动写入长期记忆。</p> : null}
+            </div>
           </div>
           <div className="panel">
             <h2>偏好候选</h2>
@@ -289,8 +330,15 @@ export function App() {
                 <Sparkles size={16} />
                 从历史蒸馏
               </button>
+              <button type="button" onClick={handleSkillDistill}>蒸馏 Skill</button>
               <button type="button" onClick={refreshCandidates}>刷新候选</button>
             </div>
+            {skill?.content ? (
+              <>
+                <h3>稳定偏好 Skill</h3>
+                <pre className="code-block">{skill.content}</pre>
+              </>
+            ) : null}
             {candidates.map((candidate) => (
               <article className="line-item" key={candidate.candidate_id}>
                 <strong>{`${candidate.field}: ${candidate.old_value} -> ${candidate.new_value}`}</strong>

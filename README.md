@@ -8,8 +8,8 @@ It turns files, notes, code, tables, and images into Markdown wiki cards, then s
 - source-backed QA with claim-level evidence
 - knowledge health review
 - gap-aware completion suggestions
-- user preference memory for response style
-- preference distillation from interaction history
+- Mem0-backed long-term user memory with SQLite local fallback
+- LangMem memory library for preference extraction and stable Skill distillation
 - note, report, PPT outline, and Mermaid mindmap generation
 
 ## Quick Start
@@ -41,7 +41,9 @@ npm run dev
 
 Open `http://127.0.0.1:5174`.
 
-The app works without model API keys using local heuristic fallbacks. To enable real LLM/VLM calls, copy `.env.example` to `.env` and set an OpenAI-compatible endpoint.
+For the formal memory path, set `MEM0_API_KEY` and `OPENAI_API_KEY`; TraceWiki will use LangMem as
+the memory library and Mem0 as the long-term storage backend. Without `MEM0_API_KEY`,
+`TRACEWIKI_MEMORY_BACKEND=auto` falls back to local SQLite storage for development.
 
 ## Project Idea
 
@@ -82,6 +84,7 @@ tracewiki/
 1. Upload a slide photo, a note, and a code file.
 2. Click ingest to generate wiki cards.
 3. Ask a question and inspect the evidence chain.
-4. Save interaction feedback and distill response preferences.
+4. Let the QA loop retrieve memories, log the turn, and extract preference memories.
 5. Run knowledge health review.
-6. Generate a report, PPT outline, or mindmap.
+6. Distill stable high-confidence preferences into a user Skill.
+7. Generate a report, PPT outline, or mindmap.

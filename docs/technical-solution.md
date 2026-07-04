@@ -90,6 +90,21 @@ TraceWiki 进一步完成：
 
 个性化影响表达方式，不改变事实本身。
 
+新的记忆链路拆成三层：
+
+```text
+用户提问
+  -> RetrievalService 检索文档证据
+  -> MemoryService 检索长期记忆
+  -> GenerationService 生成回答
+  -> 记录本轮问答
+  -> LangMem Memory Library 抽取并整理偏好
+  -> 写入长期记忆（正式模式用官方 Mem0，离线模式用 SQLite）
+  -> 高置信稳定偏好自动或手动蒸馏成 data/wiki/skills 用户 Skill
+```
+
+其中长期记忆和 Skill 只影响回答结构、长度、格式和任务习惯；事实仍然必须来自已入库证据。
+
 ## 技术架构
 
 ```text
@@ -101,10 +116,15 @@ Streamlit UI
   |-- wiki_builder.py           Markdown Wiki 生成
   |-- storage.py                SQLite + Markdown 文件存储
   |-- retriever.py              本地检索
+  |-- retrieval_service.py      文档检索服务封装
+  |-- memory.py                 SQLite 长期记忆服务
+  |-- official_memory.py        LangMem Memory Library + Mem0 / SQLite 存储适配层
   |-- qa.py                     带证据问答
+  |-- generation_service.py     注入证据、画像、记忆和 Skill 的生成服务
   |-- health_check.py           知识库审查
   |-- completion.py             补全建议
   |-- personalization.py        用户偏好
+  |-- skill_distiller.py        稳定偏好 Skill 蒸馏
   |-- generators.py             笔记/报告/PPT/思维导图生成
 ```
 
@@ -138,4 +158,3 @@ Streamlit UI
 - 图片区域 bbox 级证据定位。
 - 代码仓库级解析。
 - 更强的知识冲突检测。
-

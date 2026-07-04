@@ -18,10 +18,12 @@ from tracewiki.generators import (
 from tracewiki.health_check import render_health_report, review_knowledge_base
 from tracewiki.ingest import ingest_path
 from tracewiki.llm import ModelClient
+from tracewiki.official_memory import create_memory_service
 from tracewiki.personalization import apply_candidate, load_profile, save_profile
 from tracewiki.preference_distiller import create_interaction_log, distill_preferences
 from tracewiki.qa import answer_question
 from tracewiki.retriever import LexicalRetriever
+from tracewiki.skill_distiller import distill_user_skill, load_user_skill, maybe_distill_user_skill
 from tracewiki.storage import KnowledgeStore
 from tracewiki.system_log import record_event
 
@@ -30,6 +32,7 @@ load_dotenv()
 settings = load_settings()
 ensure_dirs(settings)
 store = KnowledgeStore(settings.sqlite_path, settings.wiki_dir)
+memory_service = create_memory_service(settings)
 
 st.set_page_config(page_title="TraceWiki", layout="wide")
 st.title("TraceWiki")
@@ -37,10 +40,12 @@ st.caption("可追溯、多模态、会自检、会学习偏好的个人知识�
 
 profile_path = settings.data_dir / "user_profile.json"
 profile = load_profile(profile_path)
+user_id = "default"
 
 with st.sidebar:
     st.header("手动偏好设置")
     st.caption("这是原来的显式设置方案，保留为备选。")
+    user_id = st.text_input("用户 ID", value="default").strip() or "default"
     profile.language = st.selectbox("语言", ["zh-CN", "en-US"], index=0)
     profile.answer_style = st.selectbox(
         "回答风格",
@@ -124,13 +129,56 @@ with tab_qa:
             f"Retrieved {len(results)} evidence items",
             {"result_titles": [item.title for item in results]},
         )
-        answer = answer_question(question, results, profile, ModelClient(settings))
+        memories = memory_service.search(user_id=user_id, query=question)
+        record_event(
+            store,
+            "memory_retrieval_completed",
+            f"Retrieved {len(memories)} user memories",
+            {"user_id": user_id, "memory_ids": [item.memory_id for item in memories]},
+        )
+        answer = answer_question(
+            question,
+            results,
+            profile,
+            ModelClient(settings),
+            memories=memories,
+            skill=load_user_skill(settings.wiki_dir, user_id),
+        )
         record_event(
             store,
             "answer_generated",
             "Generated source-grounded answer",
             {"claim_count": len(answer.claims), "answer_length": len(answer.text)},
         )
+        interaction = create_interaction_log(
+            question=question,
+            answer_summary=answer.text[:600],
+            answer_type="technical_explanation",
+            user_feedback="",
+            user_action="auto_logged",
+            accepted=True,
+        )
+        store.add_interaction(interaction)
+        memory_updates = memory_service.extract_and_update(
+            user_id=user_id,
+            question=question,
+            answer=answer.text,
+        )
+        if memory_updates:
+            record_event(
+                store,
+                "memory_updated",
+                f"Updated {len(memory_updates)} user memories from this QA turn",
+                {"user_id": user_id, "memory_ids": [item.memory_id for item in memory_updates]},
+            )
+            skill_result = maybe_distill_user_skill(memory_service, user_id=user_id, wiki_dir=settings.wiki_dir)
+            if skill_result["updated"]:
+                record_event(
+                    store,
+                    "preference_skill_auto_distilled",
+                    f"Auto-distilled {skill_result['memory_count']} stable memories into user skill",
+                    {"user_id": user_id, "path": skill_result["path"]},
+                )
         st.session_state["last_question"] = question
         st.session_state["last_answer"] = answer.text
         st.session_state["last_evidence_graph"] = build_evidence_graph(question, answer)
@@ -174,6 +222,29 @@ with tab_qa:
             accepted=accepted,
         )
         store.add_interaction(log)
+        memory_updates = memory_service.extract_and_update(
+            user_id=user_id,
+            question=last_question,
+            answer=last_answer,
+            feedback=feedback_text,
+            action=feedback_action,
+            accepted=accepted,
+        )
+        if memory_updates:
+            record_event(
+                store,
+                "memory_updated_from_feedback",
+                f"Updated {len(memory_updates)} user memories from explicit feedback",
+                {"user_id": user_id, "memory_ids": [item.memory_id for item in memory_updates]},
+            )
+            skill_result = maybe_distill_user_skill(memory_service, user_id=user_id, wiki_dir=settings.wiki_dir)
+            if skill_result["updated"]:
+                record_event(
+                    store,
+                    "preference_skill_auto_distilled",
+                    f"Auto-distilled {skill_result['memory_count']} stable memories into user skill",
+                    {"user_id": user_id, "path": skill_result["path"]},
+                )
         st.success("反馈已保存，可在“个性化记忆”中蒸馏偏好。")
 
 with tab_wiki:
@@ -200,7 +271,7 @@ with tab_health:
 
 with tab_memory:
     st.subheader("个性化记忆")
-    st.caption("新方案：从交互历史中蒸馏偏好候选，用户确认后才写入长期画像。")
+    st.caption("新方案：问答会写入 SQLite 长期记忆；稳定偏好再蒸馏成 Skill。")
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -218,13 +289,39 @@ with tab_memory:
             }
         )
     with col_b:
-        st.markdown("### 最近交互历史")
-        logs = store.list_interactions(limit=20)
-        st.write(f"已记录 {len(logs)} 条交互")
-        for log in logs[:5]:
-            with st.expander(f"{log.user_action} | {log.created_at}"):
-                st.write(log.question)
-                st.caption(log.user_feedback or "无补充反馈")
+        st.markdown("### SQLite 长期记忆")
+        memories = memory_service.list(user_id=user_id, status="active", limit=20)
+        st.write(f"已记录 {len(memories)} 条记忆")
+        for memory in memories[:8]:
+            with st.expander(f"{memory.memory_type} | {memory.confidence:.2f} | support {memory.support_count}"):
+                st.write(memory.content)
+                st.caption(f"{memory.memory_id} | {memory.source}")
+
+    st.markdown("### 最近交互历史")
+    logs = store.list_interactions(limit=20)
+    st.write(f"已记录 {len(logs)} 条交互")
+    for log in logs[:5]:
+        with st.expander(f"{log.user_action} | {log.created_at}"):
+            st.write(log.question)
+            st.caption(log.user_feedback or "无补充反馈")
+
+    if st.button("把稳定长期偏好蒸馏成 Skill"):
+        result = distill_user_skill(memory_service, user_id=user_id, wiki_dir=settings.wiki_dir)
+        if result["updated"]:
+            record_event(
+                store,
+                "preference_skill_distilled",
+                f"Distilled {result['memory_count']} stable memories into user skill",
+                {"user_id": user_id, "path": result["path"]},
+            )
+            st.success(f"已生成 Skill：{result['path']}")
+        else:
+            st.info("暂时没有达到高置信且多次出现的稳定偏好。")
+
+    current_skill = load_user_skill(settings.wiki_dir, user_id)
+    if current_skill:
+        with st.expander("当前用户画像 Skill"):
+            st.code(current_skill, language="markdown")
 
     if st.button("从历史蒸馏偏好候选", type="primary"):
         candidates = distill_preferences(store.list_interactions(limit=30), profile)

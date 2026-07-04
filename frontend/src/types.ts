@@ -29,6 +29,8 @@ export interface AskResponse {
   claims: Record<string, unknown>[];
   graph_mermaid: string;
   evidence: EvidenceResult[];
+  memories: MemoryInfo[];
+  memory_updates: MemoryInfo[];
 }
 
 export interface HealthReviewResponse {
@@ -67,6 +69,27 @@ export interface PreferenceCandidate {
   created_at: string;
 }
 
+export interface MemoryInfo {
+  memory_id: string;
+  user_id: string;
+  memory_type: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  confidence: number;
+  source: string;
+  status: string;
+  support_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SkillDistillResponse {
+  updated: boolean;
+  path: string;
+  content: string;
+  memory_count: number;
+}
+
 export interface UserProfile {
   language: string;
   answer_style: string;
@@ -78,4 +101,3 @@ export interface UserProfile {
   citation_required: boolean;
   learned_preferences: Array<Record<string, unknown>>;
 }
-

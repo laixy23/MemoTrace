@@ -48,6 +48,7 @@ def distill_preferences(
     answer_types = Counter(log.answer_type for log in logs)
 
     candidates.extend(_output_candidates(actions, profile, logs))
+    candidates.extend(_length_candidates(actions, profile, logs))
     candidates.extend(_style_candidates(feedback_text, profile, logs))
     candidates.extend(_level_candidates(actions, answer_types, profile, logs))
     candidates.extend(_avoid_candidates(feedback_text, profile, logs))
@@ -99,6 +100,34 @@ def _style_candidates(
                     confidence=min(0.92, 0.58 + hits * 0.08),
                 )
             ]
+    return []
+
+
+def _length_candidates(
+    actions: Counter[str],
+    profile: UserProfile,
+    logs: list[InteractionLog],
+) -> list[PreferenceCandidate]:
+    if actions["make_shorter"] >= 2 and profile.length_preference != "简短":
+        return [
+            candidate(
+                field="length_preference",
+                old_value=profile.length_preference,
+                new_value="简短",
+                evidence=f"最近 {len(logs)} 条交互中，用户 {actions['make_shorter']} 次要求回答更短。",
+                confidence=min(0.9, 0.6 + actions["make_shorter"] * 0.08),
+            )
+        ]
+    if actions["make_more_detailed"] >= 2 and profile.length_preference != "详细":
+        return [
+            candidate(
+                field="length_preference",
+                old_value=profile.length_preference,
+                new_value="详细",
+                evidence=f"最近 {len(logs)} 条交互中，用户 {actions['make_more_detailed']} 次要求回答更详细。",
+                confidence=min(0.9, 0.6 + actions["make_more_detailed"] * 0.08),
+            )
+        ]
     return []
 
 
