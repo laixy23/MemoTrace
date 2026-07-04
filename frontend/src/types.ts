@@ -1,0 +1,81 @@
+export interface CardInfo {
+  card_id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  category: string;
+  source_id: string;
+  source_path: string;
+  content: string;
+  evidence: Record<string, unknown>[];
+  created_at: string;
+}
+
+export interface UploadResponse {
+  card: CardInfo;
+  message: string;
+}
+
+export interface EvidenceResult {
+  title: string;
+  score: number;
+  locator: string;
+  source: string;
+  snippet: string;
+}
+
+export interface AskResponse {
+  answer: string;
+  claims: Record<string, unknown>[];
+  graph_mermaid: string;
+  evidence: EvidenceResult[];
+}
+
+export interface HealthReviewResponse {
+  report_markdown: string;
+  issues: Array<{
+    title: string;
+    severity: string;
+    issue_type: string;
+    reason: string;
+    suggestion: string;
+  }>;
+  completion_actions: Array<{
+    issue_title: string;
+    action_type: string;
+    query_or_request: string;
+    rationale: string;
+  }>;
+}
+
+export interface SystemLogInfo {
+  log_id: string;
+  action_type: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface PreferenceCandidate {
+  candidate_id: string;
+  field: string;
+  old_value: string;
+  new_value: string;
+  evidence: string;
+  confidence: number;
+  status: string;
+  created_at: string;
+}
+
+export interface UserProfile {
+  language: string;
+  answer_style: string;
+  technical_level: string;
+  length_preference: string;
+  preferred_outputs: string[];
+  domain_focus: string[];
+  avoid: string[];
+  citation_required: boolean;
+  learned_preferences: Array<Record<string, unknown>>;
+}
+
