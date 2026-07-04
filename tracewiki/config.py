@@ -16,6 +16,9 @@ class Settings:
     openai_api_key: str
     text_model: str
     vision_model: str
+    embedding_model: str
+    vector_backend: str
+    rerank_enabled: bool
 
 
 def load_settings() -> Settings:
@@ -30,6 +33,9 @@ def load_settings() -> Settings:
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         text_model=os.getenv("TRACEWIKI_TEXT_MODEL", "gpt-4.1-mini"),
         vision_model=os.getenv("TRACEWIKI_VISION_MODEL", "gpt-4.1-mini"),
+        embedding_model=os.getenv("TRACEWIKI_EMBEDDING_MODEL", "text-embedding-3-small"),
+        vector_backend=os.getenv("TRACEWIKI_VECTOR_BACKEND", "sqlite"),
+        rerank_enabled=os.getenv("TRACEWIKI_RERANK_ENABLED", "true").lower() in {"1", "true", "yes"},
     )
 
 
@@ -48,4 +54,3 @@ def ensure_dirs(settings: Settings) -> None:
         settings.staging_dir,
     ]:
         path.mkdir(parents=True, exist_ok=True)
-

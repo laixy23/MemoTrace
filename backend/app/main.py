@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.app.routes import documents, generation, health, logs, preferences, qa, review, wiki
+from backend.app.routes import completion, documents, generation, health, logs, preferences, qa, review, wiki
 from backend.app.services import get_settings, get_store
 from tracewiki.config import ensure_dirs
 
@@ -44,6 +44,7 @@ app.include_router(documents.router, prefix="/api")
 app.include_router(wiki.router, prefix="/api")
 app.include_router(qa.router, prefix="/api")
 app.include_router(review.router, prefix="/api")
+app.include_router(completion.router, prefix="/api")
 app.include_router(logs.router, prefix="/api")
 app.include_router(preferences.router, prefix="/api")
 app.include_router(generation.router, prefix="/api")

@@ -168,7 +168,8 @@ textarea {
 }
 
 .feedback-row input,
-.feedback-row select {
+.feedback-row select,
+.web-completion-box input {
   border: 1px solid #c9d3e4;
   min-height: 36px;
   padding: 0 10px;
@@ -216,6 +217,13 @@ textarea {
   min-width: 110px;
 }
 
+.web-completion-box {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  margin-bottom: 12px;
+}
+
 @media (max-width: 920px) {
   .topbar,
   .upload-band {
@@ -227,8 +235,8 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .feedback-row {
+  .feedback-row,
+  .web-completion-box {
     grid-template-columns: 1fr;
   }
 }
-

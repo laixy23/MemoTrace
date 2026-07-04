@@ -108,3 +108,24 @@ class SystemLog:
     summary: str
     payload: dict[str, Any]
     created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class VectorRecord:
+    item_id: str
+    item_type: str
+    text: str
+    vector: list[float]
+    metadata: dict[str, Any]
+    updated_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class StagingItem:
+    staging_id: str
+    title: str
+    url: str
+    summary: str
+    content: str
+    status: str = "pending"
+    created_at: str = field(default_factory=utc_now_iso)

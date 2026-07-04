@@ -10,7 +10,9 @@ from .models import (
     PreferenceCandidate,
     SourceRecord,
     SourceSpan,
+    StagingItem,
     SystemLog,
+    VectorRecord,
 )
 
 
@@ -75,6 +77,25 @@ CREATE TABLE IF NOT EXISTS system_logs (
   action_type TEXT NOT NULL,
   summary TEXT NOT NULL,
   payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vector_index (
+  item_id TEXT PRIMARY KEY,
+  item_type TEXT NOT NULL,
+  text TEXT NOT NULL,
+  vector_json TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS staging_items (
+  staging_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 """
@@ -374,3 +395,95 @@ class KnowledgeStore:
             )
             for row in rows
         ]
+
+    def upsert_vectors(self, records: list[VectorRecord]) -> None:
+        with self._connect() as con:
+            con.executemany(
+                """
+                INSERT OR REPLACE INTO vector_index
+                (item_id, item_type, text, vector_json, metadata_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        record.item_id,
+                        record.item_type,
+                        record.text,
+                        json.dumps(record.vector),
+                        json.dumps(record.metadata, ensure_ascii=False),
+                        record.updated_at,
+                    )
+                    for record in records
+                ],
+            )
+
+    def list_vectors(self, limit: int = 5000) -> list[VectorRecord]:
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT item_id, item_type, text, vector_json, metadata_json, updated_at
+                FROM vector_index
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            VectorRecord(
+                item_id=row[0],
+                item_type=row[1],
+                text=row[2],
+                vector=json.loads(row[3]),
+                metadata=json.loads(row[4]),
+                updated_at=row[5],
+            )
+            for row in rows
+        ]
+
+    def add_staging_item(self, item: StagingItem) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                INSERT OR REPLACE INTO staging_items
+                (staging_id, title, url, summary, content, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item.staging_id,
+                    item.title,
+                    item.url,
+                    item.summary,
+                    item.content,
+                    item.status,
+                    item.created_at,
+                ),
+            )
+
+    def list_staging_items(self, status: str | None = None) -> list[StagingItem]:
+        query = """
+            SELECT staging_id, title, url, summary, content, status, created_at
+            FROM staging_items
+        """
+        params: tuple[str, ...] = ()
+        if status:
+            query += " WHERE status = ?"
+            params = (status,)
+        query += " ORDER BY created_at DESC"
+        with self._connect() as con:
+            rows = con.execute(query, params).fetchall()
+        return [
+            StagingItem(
+                staging_id=row[0],
+                title=row[1],
+                url=row[2],
+                summary=row[3],
+                content=row[4],
+                status=row[5],
+                created_at=row[6],
+            )
+            for row in rows
+        ]
+
+    def update_staging_status(self, staging_id: str, status: str) -> None:
+        with self._connect() as con:
+            con.execute("UPDATE staging_items SET status = ? WHERE staging_id = ?", (status, staging_id))

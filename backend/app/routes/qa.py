@@ -5,10 +5,11 @@ from fastapi import APIRouter, HTTPException
 from backend.app.schemas import AskRequest, AskResponse, EvidenceResult
 from backend.app.services import get_settings, get_store
 from tracewiki.evidence_graph import build_evidence_graph, result_table
+from tracewiki.hybrid_retriever import HybridRetriever
 from tracewiki.llm import ModelClient
 from tracewiki.personalization import load_profile
 from tracewiki.qa import answer_question
-from tracewiki.retriever import LexicalRetriever
+from tracewiki.reranker import rerank_results
 from tracewiki.system_log import record_event
 
 router = APIRouter(prefix="/qa", tags=["qa"])
@@ -25,20 +26,23 @@ def ask(payload: AskRequest) -> AskResponse:
     profile = load_profile(settings.data_dir / "user_profile.json")
     cards = store.list_cards()
     spans = store.list_spans()
+    vectors = store.list_vectors()
+    client = ModelClient(settings)
     record_event(
         store,
         "question_received",
         "Received user question",
-        {"question": question, "card_count": len(cards), "span_count": len(spans)},
+        {"question": question, "card_count": len(cards), "span_count": len(spans), "vector_count": len(vectors)},
     )
-    results = LexicalRetriever(cards, spans).search(question, limit=payload.top_k)
+    results = HybridRetriever(cards, spans, vectors, client).search(question, limit=max(payload.top_k * 3, 10))
+    results = rerank_results(question, results, client, limit=payload.top_k)
     record_event(
         store,
         "retrieval_completed",
-        f"Retrieved {len(results)} evidence items",
-        {"result_titles": [item.title for item in results]},
+        f"Retrieved and reranked {len(results)} evidence items",
+        {"result_titles": [item.title for item in results], "rerank_enabled": settings.rerank_enabled},
     )
-    answer = answer_question(question, results, profile, ModelClient(settings))
+    answer = answer_question(question, results, profile, client)
     record_event(
         store,
         "answer_generated",
@@ -55,4 +59,3 @@ def ask(payload: AskRequest) -> AskResponse:
         graph_mermaid=build_evidence_graph(question, answer),
         evidence=[EvidenceResult(**row) for row in result_table(results)],
     )
-

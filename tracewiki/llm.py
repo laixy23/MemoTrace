@@ -61,6 +61,24 @@ class ModelClient:
             model=self.settings.vision_model,
         )
 
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not self.enabled:
+            return []
+        url = self.settings.openai_base_url.rstrip("/") + "/embeddings"
+        response = requests.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {self.settings.openai_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={"model": self.settings.embedding_model, "input": texts},
+            timeout=60,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        data = sorted(payload["data"], key=lambda item: item["index"])
+        return [item["embedding"] for item in data]
+
 
 def json_or_empty(text: str) -> dict[str, Any]:
     try:
@@ -74,4 +92,3 @@ def json_or_empty(text: str) -> dict[str, Any]:
             except json.JSONDecodeError:
                 return {}
         return {}
-

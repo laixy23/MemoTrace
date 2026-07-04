@@ -67,6 +67,21 @@ class CompletionActionInfo(BaseModel):
     rationale: str
 
 
+class WebCompletionRequest(BaseModel):
+    query: str
+    limit: int = 3
+
+
+class StagingItemInfo(BaseModel):
+    staging_id: str
+    title: str
+    url: str
+    summary: str
+    content: str
+    status: str
+    created_at: str
+
+
 class HealthReviewResponse(BaseModel):
     report_markdown: str
     issues: list[HealthIssueInfo]
@@ -104,4 +119,3 @@ class PreferenceCandidateInfo(BaseModel):
 class GenerateResponse(BaseModel):
     kind: str
     content: str
-

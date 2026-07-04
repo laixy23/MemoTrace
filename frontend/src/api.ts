@@ -3,6 +3,7 @@ import type {
   CardInfo,
   HealthReviewResponse,
   PreferenceCandidate,
+  StagingItemInfo,
   SystemLogInfo,
   UploadResponse,
   UserProfile
@@ -48,6 +49,22 @@ export async function reviewHealth() {
   return request<HealthReviewResponse>("/api/health/review");
 }
 
+export async function runWebCompletion(query: string, limit = 3) {
+  return request<StagingItemInfo[]>("/api/completion/web", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, limit })
+  });
+}
+
+export async function listStaging() {
+  return request<StagingItemInfo[]>("/api/completion/staging");
+}
+
+export async function mergeStaging(stagingId: string) {
+  return request<CardInfo>(`/api/completion/staging/${stagingId}/merge`, { method: "POST" });
+}
+
 export async function listSystemLogs() {
   return request<SystemLogInfo[]>("/api/logs/system");
 }
@@ -90,4 +107,3 @@ export async function rejectCandidate(candidateId: string) {
 export async function generateContent(kind: "note" | "report" | "ppt" | "mindmap") {
   return request<{ kind: string; content: string }>(`/api/generate/${kind}`);
 }
-

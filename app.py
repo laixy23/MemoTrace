@@ -17,11 +17,12 @@ from tracewiki.generators import (
 )
 from tracewiki.health_check import render_health_report, review_knowledge_base
 from tracewiki.ingest import ingest_path
+from tracewiki.hybrid_retriever import HybridRetriever
 from tracewiki.llm import ModelClient
 from tracewiki.personalization import apply_candidate, load_profile, save_profile
 from tracewiki.preference_distiller import create_interaction_log, distill_preferences
 from tracewiki.qa import answer_question
-from tracewiki.retriever import LexicalRetriever
+from tracewiki.reranker import rerank_results
 from tracewiki.storage import KnowledgeStore
 from tracewiki.system_log import record_event
 
@@ -111,20 +112,23 @@ with tab_qa:
     if st.button("提问", type="primary"):
         cards = store.list_cards()
         spans = store.list_spans()
+        vectors = store.list_vectors()
+        client = ModelClient(settings)
         record_event(
             store,
             "question_received",
             "Received user question",
-            {"question": question, "card_count": len(cards), "span_count": len(spans)},
+            {"question": question, "card_count": len(cards), "span_count": len(spans), "vector_count": len(vectors)},
         )
-        results = LexicalRetriever(cards, spans).search(question)
+        results = HybridRetriever(cards, spans, vectors, client).search(question, limit=15)
+        results = rerank_results(question, results, client, limit=5)
         record_event(
             store,
             "retrieval_completed",
             f"Retrieved {len(results)} evidence items",
             {"result_titles": [item.title for item in results]},
         )
-        answer = answer_question(question, results, profile, ModelClient(settings))
+        answer = answer_question(question, results, profile, client)
         record_event(
             store,
             "answer_generated",

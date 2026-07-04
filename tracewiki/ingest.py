@@ -11,6 +11,7 @@ from .parsers import detect_modality, extract_text, guess_mime
 from .spans import build_image_spans, build_text_spans
 from .storage import KnowledgeStore
 from .system_log import record_event
+from .vector_index import build_vector_records
 from .wiki_builder import build_card_from_image, build_card_from_text, stable_id
 
 
@@ -57,11 +58,13 @@ def ingest_path(path: Path, settings: Settings, store: KnowledgeStore) -> Knowle
         spans = build_text_spans(source, card, text)
     store.upsert_card(card)
     store.replace_spans_for_card(card.card_id, spans)
+    vectors = build_vector_records(card, spans, client)
+    store.upsert_vectors(vectors)
     record_event(
         store,
         "wiki_card_created",
-        f"Created Wiki card and {len(spans)} evidence spans",
-        {"card_id": card.card_id, "title": card.title, "span_count": len(spans)},
+        f"Created Wiki card, {len(spans)} evidence spans, and {len(vectors)} vectors",
+        {"card_id": card.card_id, "title": card.title, "span_count": len(spans), "vector_count": len(vectors)},
     )
     return card
 

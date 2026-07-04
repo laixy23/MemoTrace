@@ -6,8 +6,10 @@ It turns files, notes, code, tables, and images into Markdown wiki cards, then s
 
 - multimodal ingest with OCR + VLM hooks
 - source-backed QA with claim-level evidence
+- hybrid lexical + embedding retrieval with optional FAISS/Chroma scoring
+- rerank by LLM when configured, with a local heuristic fallback
 - knowledge health review
-- gap-aware completion suggestions
+- web completion to a staging area, then user-confirmed merge into Wiki
 - user preference memory for response style
 - preference distillation from interaction history
 - note, report, PPT outline, and Mermaid mindmap generation
@@ -42,6 +44,19 @@ npm run dev
 Open `http://127.0.0.1:5174`.
 
 The app works without model API keys using local heuristic fallbacks. To enable real LLM/VLM calls, copy `.env.example` to `.env` and set an OpenAI-compatible endpoint.
+
+Useful model and retrieval settings:
+
+```powershell
+OPENAI_API_KEY=...
+TRACEWIKI_TEXT_MODEL=gpt-4.1-mini
+TRACEWIKI_VISION_MODEL=gpt-4.1-mini
+TRACEWIKI_EMBEDDING_MODEL=text-embedding-3-small
+TRACEWIKI_VECTOR_BACKEND=sqlite  # sqlite, faiss, or chroma
+TRACEWIKI_RERANK_ENABLED=true
+```
+
+`sqlite` works without extra dependencies. To try optional backends, install `faiss-cpu` or `chromadb` and set `TRACEWIKI_VECTOR_BACKEND` accordingly. Web completion searches the web, fetches candidate pages into `/api/completion/staging`, and only merges a page into `data/raw/web` and Wiki cards after confirmation.
 
 ## Project Idea
 

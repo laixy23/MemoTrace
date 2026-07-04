@@ -48,6 +48,16 @@ export interface HealthReviewResponse {
   }>;
 }
 
+export interface StagingItemInfo {
+  staging_id: string;
+  title: string;
+  url: string;
+  summary: string;
+  content: string;
+  status: string;
+  created_at: string;
+}
+
 export interface SystemLogInfo {
   log_id: string;
   action_type: string;
@@ -78,4 +88,3 @@ export interface UserProfile {
   citation_required: boolean;
   learned_preferences: Array<Record<string, unknown>>;
 }
-

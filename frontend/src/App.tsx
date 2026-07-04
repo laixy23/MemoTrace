@@ -5,6 +5,7 @@ import {
   Database,
   FileUp,
   GitBranch,
+  Globe2,
   HeartPulse,
   NotebookText,
   RefreshCcw,
@@ -20,13 +21,24 @@ import {
   healthCheck,
   listCandidates,
   listCards,
+  listStaging,
   listSystemLogs,
+  mergeStaging,
   rejectCandidate,
   reviewHealth,
+  runWebCompletion,
   saveFeedback,
   uploadDocument
 } from "./api";
-import type { AskResponse, CardInfo, HealthReviewResponse, PreferenceCandidate, SystemLogInfo, UserProfile } from "./types";
+import type {
+  AskResponse,
+  CardInfo,
+  HealthReviewResponse,
+  PreferenceCandidate,
+  StagingItemInfo,
+  SystemLogInfo,
+  UserProfile
+} from "./types";
 
 type TabKey = "qa" | "wiki" | "health" | "memory" | "logs" | "generate";
 
@@ -45,23 +57,34 @@ export function App() {
   const [cards, setCards] = useState<CardInfo[]>([]);
   const [logs, setLogs] = useState<SystemLogInfo[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [stagingItems, setStagingItems] = useState<StagingItemInfo[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("这个知识库目前有哪些核心能力？");
   const [answer, setAnswer] = useState<AskResponse | null>(null);
   const [feedback, setFeedback] = useState("");
   const [feedbackAction, setFeedbackAction] = useState("accepted");
   const [health, setHealth] = useState<HealthReviewResponse | null>(null);
+  const [webQuery, setWebQuery] = useState("个人知识库智能助手 RAG 多模态 可回溯");
   const [candidates, setCandidates] = useState<PreferenceCandidate[]>([]);
   const [generated, setGenerated] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const spanEvidenceCount = useMemo(() => answer?.evidence.filter((item) => item.locator !== "wiki_card").length ?? 0, [answer]);
+  const spanEvidenceCount = useMemo(
+    () => answer?.evidence.filter((item) => item.locator !== "wiki_card").length ?? 0,
+    [answer]
+  );
 
   async function refreshAll() {
-    const [cardItems, logItems, profileInfo] = await Promise.all([listCards(), listSystemLogs(), getProfile()]);
+    const [cardItems, logItems, profileInfo, pendingItems] = await Promise.all([
+      listCards(),
+      listSystemLogs(),
+      getProfile(),
+      listStaging()
+    ]);
     setCards(cardItems);
     setLogs(logItems);
     setProfile(profileInfo);
+    setStagingItems(pendingItems);
   }
 
   useEffect(() => {
@@ -116,10 +139,46 @@ export function App() {
   }
 
   async function handleHealth() {
-    const result = await reviewHealth();
-    setHealth(result);
-    setStatus(`健康审查完成，发现 ${result.issues.length} 个问题`);
-    await refreshAll();
+    setBusy(true);
+    try {
+      const result = await reviewHealth();
+      setHealth(result);
+      setStatus(`健康审查完成，发现 ${result.issues.length} 个问题`);
+      if (result.completion_actions[0]?.query_or_request) {
+        setWebQuery(result.completion_actions[0].query_or_request);
+      }
+      await refreshAll();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleWebCompletion() {
+    if (!webQuery.trim()) return;
+    setBusy(true);
+    try {
+      const items = await runWebCompletion(webQuery, 3);
+      setStagingItems(items);
+      setStatus(`联网补全已暂存 ${items.length} 条候选，确认后才会合并进知识库`);
+      await refreshAll();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "联网补全失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleMergeStaging(stagingId: string) {
+    setBusy(true);
+    try {
+      const card = await mergeStaging(stagingId);
+      setStatus(`已合并网页资料：${card.title}`);
+      await refreshAll();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "合并失败");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleDistill() {
@@ -257,14 +316,29 @@ export function App() {
         <section className="workspace two-column">
           <div className="panel">
             <h2>知识库健康审查</h2>
-            <button className="primary-button" onClick={handleHealth} type="button">
+            <button className="primary-button" onClick={handleHealth} disabled={busy} type="button">
               <HeartPulse size={16} />
               开始审查
             </button>
-            {health ? <pre className="markdown-block">{health.report_markdown}</pre> : <p className="empty">审查后会列出缺来源、覆盖不足、多模态缺失等问题。</p>}
+            {health ? (
+              <pre className="markdown-block">{health.report_markdown}</pre>
+            ) : (
+              <p className="empty">审查后会列出缺来源、覆盖不足、多模态缺失等问题。</p>
+            )}
           </div>
           <div className="panel">
-            <h2>补全建议</h2>
+            <h2>补全工作台</h2>
+            <div className="web-completion-box">
+              <input
+                value={webQuery}
+                onChange={(event) => setWebQuery(event.target.value)}
+                placeholder="输入要自动搜索补全的主题"
+              />
+              <button className="primary-button" onClick={handleWebCompletion} disabled={busy || !webQuery.trim()} type="button">
+                <Globe2 size={16} />
+                联网补全到暂存区
+              </button>
+            </div>
             {health?.completion_actions.map((action) => (
               <article className="line-item" key={action.issue_title}>
                 <strong>{action.action_type}</strong>
@@ -272,6 +346,23 @@ export function App() {
                 <span>{action.rationale}</span>
               </article>
             ))}
+            <h3>待确认网页资料</h3>
+            {stagingItems.length ? (
+              stagingItems.map((item) => (
+                <article className="line-item" key={item.staging_id}>
+                  <strong>{item.title}</strong>
+                  <span>{item.url}</span>
+                  <p>{item.summary}</p>
+                  <div className="button-row">
+                    <button onClick={() => handleMergeStaging(item.staging_id)} disabled={busy} type="button">
+                      确认合并
+                    </button>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <p className="empty">联网补全会先进入暂存区，确认后才写入 raw/web 并生成 Wiki。</p>
+            )}
           </div>
         </section>
       ) : null}
