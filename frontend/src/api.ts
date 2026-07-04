@@ -6,7 +6,8 @@ import type {
   StagingItemInfo,
   SystemLogInfo,
   UploadResponse,
-  UserProfile
+  UserProfile,
+  WikiPageInfo
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -35,6 +36,14 @@ export async function uploadDocument(file: File) {
 
 export async function listCards() {
   return request<CardInfo[]>("/api/wiki/cards");
+}
+
+export async function getWikiIndex() {
+  return request<WikiPageInfo>("/api/wiki/index");
+}
+
+export async function getWikiLog() {
+  return request<WikiPageInfo>("/api/wiki/log");
 }
 
 export async function askQuestion(question: string, topK = 5) {

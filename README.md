@@ -8,6 +8,7 @@ It turns files, notes, code, tables, and images into Markdown wiki cards, then s
 - source-backed QA with claim-level evidence
 - hybrid lexical + embedding retrieval with optional FAISS/Chroma scoring
 - rerank by LLM when configured, with a local heuristic fallback
+- Karpathy-style LLM Wiki organization with `index.md`, `log.md`, and automatic `[[wikilinks]]`
 - knowledge health review
 - web completion to a staging area, then user-confirmed merge into Wiki
 - user preference memory for response style
@@ -57,6 +58,17 @@ TRACEWIKI_RERANK_ENABLED=true
 ```
 
 `sqlite` works without extra dependencies. To try optional backends, install `faiss-cpu` or `chromadb` and set `TRACEWIKI_VECTOR_BACKEND` accordingly. Web completion searches the web, fetches candidate pages into `/api/completion/staging`, and only merges a page into `data/raw/web` and Wiki cards after confirmation.
+
+## LLM Wiki Layer
+
+TraceWiki keeps a lightweight Wiki navigation layer alongside vector retrieval:
+
+- `data/wiki/index.md` is regenerated from current cards and acts as the first page an agent reads.
+- `data/wiki/log.md` mirrors system events into a readable Markdown activity log.
+- new cards are enriched with `[[Wiki_Links|Wiki Links]]` to related existing cards when tags, titles, or categories overlap.
+- QA augments hybrid retrieval with a Wiki-guided read step: include the index page, read matched Wiki cards, then follow explicit links.
+
+This keeps the project close to Karpathy's LLM Wiki idea while retaining the practical RAG pieces needed for the hackathon demo.
 
 ## Project Idea
 

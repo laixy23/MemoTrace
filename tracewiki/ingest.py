@@ -13,6 +13,7 @@ from .storage import KnowledgeStore
 from .system_log import record_event
 from .vector_index import build_vector_records
 from .wiki_builder import build_card_from_image, build_card_from_text, stable_id
+from .wiki_organizer import enrich_card_with_links, render_index_page
 
 
 def save_upload(source_path: Path, settings: Settings) -> SourceRecord:
@@ -56,10 +57,13 @@ def ingest_path(path: Path, settings: Settings, store: KnowledgeStore) -> Knowle
         text = extract_text(stored_path)
         card = build_card_from_text(source, text)
         spans = build_text_spans(source, card, text)
+    existing_cards = store.list_cards()
+    card = enrich_card_with_links(card, existing_cards)
     store.upsert_card(card)
     store.replace_spans_for_card(card.card_id, spans)
     vectors = build_vector_records(card, spans, client)
     store.upsert_vectors(vectors)
+    render_index_page(store.list_cards(), settings.wiki_dir)
     record_event(
         store,
         "wiki_card_created",

@@ -18,6 +18,8 @@ import {
   distillPreferences,
   generateContent,
   getProfile,
+  getWikiIndex,
+  getWikiLog,
   healthCheck,
   listCandidates,
   listCards,
@@ -37,7 +39,8 @@ import type {
   PreferenceCandidate,
   StagingItemInfo,
   SystemLogInfo,
-  UserProfile
+  UserProfile,
+  WikiPageInfo
 } from "./types";
 
 type TabKey = "qa" | "wiki" | "health" | "memory" | "logs" | "generate";
@@ -58,6 +61,8 @@ export function App() {
   const [logs, setLogs] = useState<SystemLogInfo[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [stagingItems, setStagingItems] = useState<StagingItemInfo[]>([]);
+  const [wikiIndex, setWikiIndex] = useState<WikiPageInfo | null>(null);
+  const [wikiLog, setWikiLog] = useState<WikiPageInfo | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("这个知识库目前有哪些核心能力？");
   const [answer, setAnswer] = useState<AskResponse | null>(null);
@@ -75,16 +80,20 @@ export function App() {
   );
 
   async function refreshAll() {
-    const [cardItems, logItems, profileInfo, pendingItems] = await Promise.all([
+    const [cardItems, logItems, profileInfo, pendingItems, indexPage, logPage] = await Promise.all([
       listCards(),
       listSystemLogs(),
       getProfile(),
-      listStaging()
+      listStaging(),
+      getWikiIndex(),
+      getWikiLog()
     ]);
     setCards(cardItems);
     setLogs(logItems);
     setProfile(profileInfo);
     setStagingItems(pendingItems);
+    setWikiIndex(indexPage);
+    setWikiLog(logPage);
   }
 
   useEffect(() => {
@@ -292,7 +301,7 @@ export function App() {
       ) : null}
 
       {activeTab === "wiki" ? (
-        <section className="workspace">
+        <section className="workspace two-column">
           <div className="panel">
             <h2>Wiki 卡片</h2>
             <div className="wiki-list">
@@ -308,6 +317,12 @@ export function App() {
                 </article>
               ))}
             </div>
+          </div>
+          <div className="panel">
+            <h2>LLM Wiki 目录</h2>
+            <pre className="markdown-block">{wikiIndex?.content || "index.md 会在摄入资料后自动生成。"}</pre>
+            <h3>活动日志</h3>
+            <pre className="markdown-block">{wikiLog?.content || "log.md 会记录摄入、检索、回答和补全事件。"}</pre>
           </div>
         </section>
       ) : null}

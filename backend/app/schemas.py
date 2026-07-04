@@ -27,6 +27,11 @@ class CardInfo(BaseModel):
     created_at: str
 
 
+class WikiPageInfo(BaseModel):
+    filename: str
+    content: str
+
+
 class UploadResponse(BaseModel):
     card: CardInfo
     message: str

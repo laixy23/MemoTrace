@@ -4,7 +4,7 @@ from tracewiki.config import Settings, ensure_dirs
 from tracewiki.health_check import review_knowledge_base
 from tracewiki.hybrid_retriever import HybridRetriever
 from tracewiki.llm import ModelClient
-from tracewiki.models import KnowledgeCard, SearchResult, SourceSpan, StagingItem, VectorRecord
+from tracewiki.models import KnowledgeCard, SearchResult, SourceSpan, StagingItem, SystemLog, VectorRecord
 from tracewiki.personalization import UserProfile, apply_candidate
 from tracewiki.preference_distiller import create_interaction_log, distill_preferences
 from tracewiki.reranker import heuristic_rerank
@@ -13,7 +13,9 @@ from tracewiki.spans import build_text_spans
 from tracewiki.storage import KnowledgeStore
 from tracewiki.vector_index import hash_embedding
 from tracewiki.web_completion import merge_staging_item
+from tracewiki.wiki_agent import wiki_guided_results
 from tracewiki.wiki_builder import build_card_from_text
+from tracewiki.wiki_organizer import enrich_card_with_links, render_index_page, render_log_page
 from tracewiki.models import SourceRecord
 
 
@@ -166,6 +168,125 @@ def test_web_staging_merges_only_after_confirmation(tmp_path):
     assert card.title
     assert store.list_staging_items()[0].status == "merged"
     assert store.list_cards()[0].card_id == card.card_id
+
+
+def test_wiki_index_page_lists_cards_with_markdown_links(tmp_path):
+    settings = make_settings(tmp_path)
+    ensure_dirs(settings)
+    card = KnowledgeCard(
+        card_id="card-index",
+        title="TraceWiki Architecture",
+        summary="A wiki-based RAG architecture.",
+        tags=["RAG", "Wiki"],
+        category="architecture",
+        source_id="source-index",
+        source_path="raw/arch.md",
+        content="# TraceWiki Architecture",
+        evidence=[],
+    )
+
+    path = render_index_page([card], settings.wiki_dir)
+
+    text = path.read_text(encoding="utf-8")
+    assert path.name == "index.md"
+    assert "[[TraceWiki_Architecture|TraceWiki Architecture]]" in text
+    assert "A wiki-based RAG architecture." in text
+
+
+def test_wiki_card_gets_related_wikilinks_section():
+    card = KnowledgeCard(
+        card_id="card-rag",
+        title="RAG Pipeline",
+        summary="Retrieval with evidence.",
+        tags=["RAG", "Evidence"],
+        category="concept",
+        source_id="s1",
+        source_path="raw/rag.md",
+        content="# RAG Pipeline\n\nRetrieval with evidence.",
+        evidence=[],
+    )
+    related = KnowledgeCard(
+        card_id="card-evidence",
+        title="Evidence Graph",
+        summary="Tracks citations.",
+        tags=["Evidence"],
+        category="concept",
+        source_id="s2",
+        source_path="raw/evidence.md",
+        content="# Evidence Graph",
+        evidence=[],
+    )
+
+    enriched = enrich_card_with_links(card, [related])
+
+    assert "## Wiki Links" in enriched.content
+    assert "[[Evidence_Graph|Evidence Graph]]" in enriched.content
+
+
+def test_log_page_renders_system_events(tmp_path):
+    settings = make_settings(tmp_path)
+    ensure_dirs(settings)
+    store = KnowledgeStore(settings.sqlite_path, settings.wiki_dir)
+    store.add_system_log(
+        SystemLog(
+            log_id="log-1",
+            action_type="wiki_card_created",
+            summary="Created Wiki card",
+            payload={"card_id": "c1"},
+            created_at="2026-07-04T00:00:00+00:00",
+        )
+    )
+
+    path = render_log_page(store.list_system_logs(), settings.wiki_dir)
+
+    text = path.read_text(encoding="utf-8")
+    assert path.name == "log.md"
+    assert "wiki_card_created" in text
+    assert "Created Wiki card" in text
+
+
+def test_wiki_guided_results_add_index_and_followed_page(tmp_path):
+    settings = make_settings(tmp_path)
+    ensure_dirs(settings)
+    architecture = KnowledgeCard(
+        card_id="card-arch",
+        title="TraceWiki Architecture",
+        summary="Links to evidence graph.",
+        tags=["RAG"],
+        category="architecture",
+        source_id="s1",
+        source_path="raw/arch.md",
+        content="# TraceWiki Architecture\n\nRelated: [[Evidence_Graph|Evidence Graph]]",
+        evidence=[],
+    )
+    evidence = KnowledgeCard(
+        card_id="card-evidence",
+        title="Evidence Graph",
+        summary="Explains traceable citations.",
+        tags=["Evidence"],
+        category="concept",
+        source_id="s2",
+        source_path="raw/evidence.md",
+        content="# Evidence Graph\n\nClaim-level citations.",
+        evidence=[],
+    )
+    render_index_page([architecture, evidence], settings.wiki_dir)
+    initial = [
+        SearchResult(
+            card_id=architecture.card_id,
+            title=architecture.title,
+            snippet=architecture.summary,
+            score=0.9,
+            source_path=architecture.source_path,
+            evidence=[{"retrieval_method": "hybrid"}],
+        )
+    ]
+
+    results = wiki_guided_results("How does evidence work?", [architecture, evidence], initial, settings.wiki_dir)
+
+    locators = [result.locator for result in results]
+    assert "wiki_index" in locators
+    assert "follow_link" in locators
 
 
 def test_health_check_empty_kb_reports_gap():

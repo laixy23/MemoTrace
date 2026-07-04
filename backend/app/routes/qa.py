@@ -11,6 +11,7 @@ from tracewiki.personalization import load_profile
 from tracewiki.qa import answer_question
 from tracewiki.reranker import rerank_results
 from tracewiki.system_log import record_event
+from tracewiki.wiki_agent import wiki_guided_results
 
 router = APIRouter(prefix="/qa", tags=["qa"])
 
@@ -36,11 +37,16 @@ def ask(payload: AskRequest) -> AskResponse:
     )
     results = HybridRetriever(cards, spans, vectors, client).search(question, limit=max(payload.top_k * 3, 10))
     results = rerank_results(question, results, client, limit=payload.top_k)
+    results = wiki_guided_results(question, cards, results, settings.wiki_dir, limit=max(payload.top_k + 3, 8))
     record_event(
         store,
         "retrieval_completed",
-        f"Retrieved and reranked {len(results)} evidence items",
-        {"result_titles": [item.title for item in results], "rerank_enabled": settings.rerank_enabled},
+        f"Retrieved, reranked, and wiki-guided {len(results)} evidence items",
+        {
+            "result_titles": [item.title for item in results],
+            "rerank_enabled": settings.rerank_enabled,
+            "wiki_guided": True,
+        },
     )
     answer = answer_question(question, results, profile, client)
     record_event(

@@ -11,6 +11,11 @@ export interface CardInfo {
   created_at: string;
 }
 
+export interface WikiPageInfo {
+  filename: string;
+  content: string;
+}
+
 export interface UploadResponse {
   card: CardInfo;
   message: string;

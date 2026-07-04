@@ -25,6 +25,7 @@ from tracewiki.qa import answer_question
 from tracewiki.reranker import rerank_results
 from tracewiki.storage import KnowledgeStore
 from tracewiki.system_log import record_event
+from tracewiki.wiki_agent import wiki_guided_results
 
 
 load_dotenv()
@@ -122,11 +123,12 @@ with tab_qa:
         )
         results = HybridRetriever(cards, spans, vectors, client).search(question, limit=15)
         results = rerank_results(question, results, client, limit=5)
+        results = wiki_guided_results(question, cards, results, settings.wiki_dir, limit=8)
         record_event(
             store,
             "retrieval_completed",
-            f"Retrieved {len(results)} evidence items",
-            {"result_titles": [item.title for item in results]},
+            f"Retrieved {len(results)} evidence items with wiki-guided reading",
+            {"result_titles": [item.title for item in results], "wiki_guided": True},
         )
         answer = answer_question(question, results, profile, client)
         record_event(

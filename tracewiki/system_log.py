@@ -23,3 +23,9 @@ def record_event(
             payload=payload,
         )
     )
+    try:
+        from .wiki_organizer import render_log_page
+
+        render_log_page(store.list_system_logs(), store.wiki_dir)
+    except Exception:
+        pass
